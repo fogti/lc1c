@@ -19,10 +19,6 @@ void str_lower(string &s) noexcept {
   std::transform(s.begin(), s.end(), s.begin(), ::tolower);
 }
 
-void str_upper(string &s) noexcept {
-  std::transform(s.begin(), s.end(), s.begin(), ::toupper);
-}
-
 void file_parse_error(const char *file, size_t lineno, const string &msg) {
   cerr << "lc1c: " << file;
   if(lineno) cerr << ": line " << (lineno - 1);

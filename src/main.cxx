@@ -14,7 +14,7 @@ using namespace std;
 
 static void read_file(lc1cenv &env, const char *file) {
   ifstream in(file);
-  if(!file) {
+  if(!in) {
     cerr << "lc1c: " << file << ": file not found\n";
     return;
   }
@@ -24,7 +24,6 @@ static void read_file(lc1cenv &env, const char *file) {
   lc1stmt stmt;
   while(getline(in, tok)) {
     // erase comments and spaces
-    cerr << "[" << lineno << "] ecas\n";
     ++lineno;
 
     {
@@ -34,13 +33,11 @@ static void read_file(lc1cenv &env, const char *file) {
     str_trim(tok);
     if(tok.empty()) continue;
 
-    cerr << "pl\n";
     // parse line
     istringstream ss(tok);
     ss >> tok;
     if(tok.empty()) continue;
     if(tok.back() == ':') {
-      cerr << "gl\n";
       // got label
       strcpy(stmt.cmd, "-L-");
       stmt.atyp = lc1atyp::LABEL;
@@ -52,14 +49,12 @@ static void read_file(lc1cenv &env, const char *file) {
       if(tok.empty()) continue;
     }
 
-    cerr << "chkcmd\n";
     string cmd = move(tok);
     if(cmd.size() > 3) {
       file_parse_error(file, lineno, "got invalid command " + cmd);
       continue;
     }
 
-    cerr << "arg\n";
     str_lower(cmd);
     getline(ss, tok);
     str_trim(tok);
@@ -72,7 +67,6 @@ static void read_file(lc1cenv &env, const char *file) {
 
     if(!tok.empty()) {
       // parse arg addr type
-      cerr << "parsarg\n";
       stmt.atyp = arg2atyp(tok);
       switch(stmt.atyp) {
         case lc1atyp::INVALID:
@@ -98,7 +92,6 @@ static void read_file(lc1cenv &env, const char *file) {
       on_invalid_arg:
         file_parse_error(file, lineno, "invalid argument '" + tok + "'");
     } else {
-      cerr << "noarg\n";
       stmt.atyp = lc1atyp::NONE;
       stmt.a_s.clear();
       stmt.a_i = 0;
@@ -176,35 +169,22 @@ int main(int argc, char *argv[]) {
       i.do_ignore = true;
       labels[i.a_s] = stcnt;
       continue;
-    } else if(i.atyp == lc1atyp::IDCONST) {
-      const string lblnam = "$" + to_string(i.a_i);
-      size_t res_arg;
-      const auto it = labels.find(lblnam);
-      if(it == labels.end()) {
-        idc_vals.emplace_back(i.a_i);
-        res_arg = stmtcnt + idc_vals.size() - 1;
-        labels[lblnam] = res_arg;
-      } else {
-        res_arg = it->second;
-      }
-      i.atyp = lc1atyp::ABSOLUTE;
-      i.a_i = res_arg;
     }
+    transform(i.cmd, i.cmd + 3, i.cmd, ::toupper);
+
+    if(i.atyp == lc1atyp::RELATIVE) {
+      i.atyp = lc1atyp::ABSOLUTE;
+      i.a_i += stcnt;
+    }
+
     ++stcnt;
   }
 
-  // resolve addrs
-  stcnt = 0;
+  // resolve labels
   for(auto &i : env.stmts) {
     if(i.do_ignore) continue;
-    transform(i.cmd, i.cmd + 3, i.cmd, ::toupper);
     switch(i.atyp) {
-      case lc1atyp::RELATIVE:
-        i.atyp = lc1atyp::ABSOLUTE;
-        i.a_i += stcnt;
-        break;
       case lc1atyp::LABEL:
-        i.atyp = lc1atyp::ABSOLUTE;
         try {
           i.a_i = labels.at(i.a_s);
         } catch(...) {
@@ -213,11 +193,22 @@ int main(int argc, char *argv[]) {
         }
         string().swap(i.a_s);
         break;
-      default:
-        // ignore other types
+      case lc1atyp::IDCONST: {
+        const string lblnam = "$" + to_string(i.a_i);
+        const auto it = labels.find(lblnam);
+        if(it == labels.end()) {
+          idc_vals.emplace_back(i.a_i);
+          i.a_i = stcnt + idc_vals.size() - 1;
+          labels[lblnam] = i.a_i;
+        } else {
+          i.a_i = it->second;
+        }
         break;
+      }
+      default:
+        continue;
     }
-    ++stcnt;
+    i.atyp = lc1atyp::ABSOLUTE;
   }
   env.stmts.reserve(stmtcnt + idc_vals.size());
   {
