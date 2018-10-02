@@ -1,0 +1,36 @@
+Aliases:
+  LABEL  := STR
+  %a, %b := ALU regs
+  %x     := instruction argument
+  S*     := stack ...
+
+VM Memory:
+  Sret <instr ptr>
+  MEM <int>
+  %a, %b, %x <int>
+
+DATA TYPES:
+  INT    integer
+
+Commands: - name                              -- input          -- output
+
+add         %a + %b                           -- a b            -- a += b
+sub         %a - %b                           -- ""
+and         %a & %b                           -- ""             -- a &= b
+cal       * call function                     -- x              -- *(internal jump, stack push)*
+def       * define / set to                   -- x              --
+
+hlt         halt execution                    --
+jmp       * jump                              -- x              --
+jpo       * jump if overflow                  -- x f
+jps       * jump if negative/signed           -- x f
+
+lda       * %a = *%x                          -- x *x           -- a
+ldb       * %b = *%x                          -- ""             -- b
+mab         %b = %a                           -- a              -- b
+mov       * *%x = %a                          -- a x            -- *x
+
+not         %a = !%a                          -- a              -- a
+ret         return to -cal-stmt-              -- *(stack)*      -- *(internal jump, stack pop)*
+rla       * rotate left                       -- a              -- a = rotate(left %x)
+rra       * rotate right

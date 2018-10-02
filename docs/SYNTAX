@@ -1,0 +1,27 @@
+=== Adressierungsarten ===
+
+LABEL
+  LABEL := absolute Adresse als Label/String
+
+'@' n
+  n := absolute Adresse als Zahl
+
+'.' n
+  n := relative Adresse als Zahl
+
+'$' n
+  n := Zahl als indirekte Konstante
+  Bsp:
+    LDA $0
+  Ausgabe:
+    LDA _d0
+   _d0: DEF 0
+
+=== allg. Syntax ===
+
+stmt:  [label] <cmd> [<addr>] '\n'
+cmd:   <STR: internal tolower'd>
+label: <STR> ':'
+addr:  ('@'|'.'|'$') <INT>
+       <STR>
+       ^def: @0
