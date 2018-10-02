@@ -67,7 +67,8 @@ static void read_file(lc1cenv &env, const char *file) {
 
     if(!tok.empty()) {
       // parse arg addr type
-      stmt.atyp = arg2atyp(tok);
+      bool defmode = (cmd == "def");
+      stmt.atyp = arg2atyp(tok, defmode);
       switch(stmt.atyp) {
         case lc1atyp::INVALID:
           goto on_invalid_arg;
@@ -76,11 +77,11 @@ static void read_file(lc1cenv &env, const char *file) {
           stmt.a_i = 0;
           break;
         default:
-          if(tok.size() == 1)
+          if(!defmode && tok.size() == 1)
             goto on_invalid_arg;
           stmt.a_s.clear();
           try {
-            stmt.a_i = stoi(tok.substr(1));
+            stmt.a_i = stoi(tok.substr(!defmode));
           } catch(...) {
             goto on_invalid_arg;
           }

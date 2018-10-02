@@ -32,11 +32,20 @@ bool cmd2has_arg(const string &command) noexcept {
   return lut.find(command) != lut.end();
 }
 
-lc1atyp arg2atyp(const string &command) noexcept {
+lc1atyp arg2atyp(const string &command, bool &defmode) noexcept {
+  const bool defmode_cached = defmode;
+  defmode = false;
   switch(command.front()) {
     case '@': return lc1atyp::ABSOLUTE;
     case '.': return lc1atyp::RELATIVE;
     case '$': return lc1atyp::IDCONST;
+    case '0': case '1': case '2': case '3': case '4':
+    case '5': case '6': case '7': case '8': case '9':
+      if(defmode_cached) {
+        defmode = true;
+        return lc1atyp::ABSOLUTE;
+      }
+      [[fallthrough]];
     default:  return isalpha(command.front()) ? lc1atyp::LABEL : lc1atyp::INVALID;
   }
 }
