@@ -9,10 +9,9 @@ using namespace std;
 
 void str_trim(string &s) {
   static const string whitespace = "\t\n\v\f\r ";
-  size_t tmp = s.find_last_not_of(whitespace);
+  const size_t tmp = s.find_last_not_of(whitespace);
   if(tmp != string::npos) s.erase(tmp + 1);
-  tmp = s.find_first_not_of(whitespace);
-  if(tmp != string::npos) s.erase(0, tmp);
+  s.erase(0, s.find_first_not_of(whitespace));
 }
 
 void str_lower(string &s) noexcept {
