@@ -107,40 +107,79 @@ static void optimize(lc1cenv &env) {
     it_t it;
     bool erase_prev, erase_cur;
   };
+  static const auto fn_erase_both = [](optdat_t &o) {
+    o.erase_prev = true;
+    o.erase_cur = true;
+  };
   static const unordered_map<string, function<void (optdat_t &o)>> jt = {
-    { "addsub", [](optdat_t &o) {
-      o.erase_prev = true;
-      o.erase_cur = true;
-    }},
-    { "subadd", [](optdat_t &o) {
-      o.erase_prev = true;
-      o.erase_cur = true;
-    }},
+    { "addsub", fn_erase_both },
+    { "subadd", fn_erase_both },
+    { "notnot", fn_erase_both },
   };
   auto &stmts = env.stmts;
   if(stmts.size() < 2) return;
   optdat_t od;
   auto &oit = od.it;
-  oit = stmts.begin() + 1;
-  while(oit != stmts.end()) {
-    decltype(jt)::const_iterator fnit;
-    {
-      string fname = (oit - 1)->cmd;
-      fname += oit->cmd;
-      fnit = jt.find(fname);
-      if(fnit == jt.end()) goto do_cont;
-      cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
+
+  // mark relative addresses as non-optimizable (might break relative addresses)
+  {
+    const auto itb = stmts.begin(), ite = stmts.end();
+    for(oit = itb; oit != ite; ++oit) {
+      if(oit->atyp != lc1atyp::RELATIVE)
+        continue;
+      const auto offset = oit->a_i; // signed offset from current oit
+      if(!offset) {
+        oit->do_ignore = true;
+        continue;
+      }
+
+      auto trg = oit + offset;
+      trg = (offset > 0) ? std::min(ite, trg + 1) : std::max(itb, trg);
+      auto itstart = oit, itstop = trg;
+      if(itstart > itstop) swap(itstart, itstop);
+      for(; itstart != itstop; ++itstart)
+        itstart->do_ignore = true;
     }
-    od.erase_prev = false;
-    od.erase_cur = false;
-    fnit->second(od);
-    if(od.erase_prev || od.erase_cur) {
-      oit = stmts.erase(oit - od.erase_prev, oit + od.erase_cur);
-      continue;
+  }
+
+  while(stmts.size() > 1) {
+    oit = stmts.begin() + 1;
+    // copy stmts into temp buffer
+    const size_t stcnt = stmts.size();
+    if(stmts.front().do_ignore) ++oit;
+
+    while(oit != stmts.end()) {
+      if(oit->do_ignore) {
+        ++oit;
+        while(oit != stmts.end() && oit->do_ignore)
+          ++oit;
+        if(oit == stmts.end())
+          break;
+        // skip the element past the ignored element, so we don't mangle it in optimizations
+        ++oit;
+        continue;
+      }
+      decltype(jt)::const_iterator fnit;
+      {
+        string fname = (oit - 1)->cmd;
+        fname += oit->cmd;
+        fnit = jt.find(fname);
+        if(fnit == jt.end()) goto do_cont;
+        cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
+      }
+      od.erase_prev = false;
+      od.erase_cur = false;
+      fnit->second(od);
+      if(od.erase_prev || od.erase_cur) {
+        oit = stmts.erase(oit - od.erase_prev, oit + od.erase_cur);
+        continue;
+      }
+
+      do_cont:
+        ++oit;
     }
 
-    do_cont:
-      ++oit;
+    if(stcnt == stmts.size()) break;
   }
 }
 
@@ -166,8 +205,8 @@ int main(int argc, char *argv[]) {
   size_t stcnt = 0;
   // generate map of labels
   for(auto &i : env.stmts) {
-    if(!strncmp(i.cmd, "-L-", 3)) {
-      i.do_ignore = true;
+    i.do_ignore = !strncmp(i.cmd, "-L-", 3);
+    if(i.do_ignore) {
       labels[i.a_s] = stcnt;
       continue;
     }
