@@ -40,6 +40,7 @@ lc1atyp arg2atyp(const string &command, bool &defmode) noexcept {
     case '$': return lc1atyp::IDCONST;
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
+    case '-':
       if(defmode_cached) {
         defmode = true;
         return lc1atyp::ABSOLUTE;

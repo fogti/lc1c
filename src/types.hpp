@@ -1,6 +1,7 @@
 #pragma once
 #include <string.h>
 #include <string>
+#include <ostream>
 #include <unordered_map>
 #include <vector>
 #include <utility>
@@ -41,4 +42,6 @@ struct lc1stmt {
 
 struct lc1cenv {
   std::vector<lc1stmt> stmts;
+  std::ostream *compout;
+  bool flag_u2d;
 };

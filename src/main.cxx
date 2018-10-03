@@ -12,6 +12,39 @@
 
 using namespace std;
 
+static bool handle_option(lc1cenv &env, const char *opt, const char *optarg, bool &used_optarg) {
+  const char *offending_arg = opt;
+  used_optarg = false;
+  switch(*opt) {
+    case 'o':
+      // output file given
+      if(opt[1] || !optarg) goto error;
+      used_optarg = true;
+      env.compout = new ofstream(optarg);
+      if(!env.compout || !(*env.compout)) {
+        cerr << "argument to option = " << optarg << '\n';
+        offending_arg = optarg;
+        if(env.compout) {
+          delete env.compout;
+          env.compout = 0;
+        }
+        goto error;
+      }
+      break;
+    case 'U':
+      if(opt[1]) goto error;
+      env.flag_u2d = true;
+      break;
+    default:
+      goto error;
+  }
+
+  return true;
+ error:
+  cerr << "lc1c: INVOCATION ERROR: invalid argument " << (offending_arg ? offending_arg : opt) << '\n';
+  return false;
+}
+
 static void read_file(lc1cenv &env, const char *file) {
   ifstream in(file);
   if(!in) {
@@ -85,7 +118,7 @@ static void read_file(lc1cenv &env, const char *file) {
           } catch(...) {
             goto on_invalid_arg;
           }
-          if(stmt.a_i < 0 && stmt.atyp != lc1atyp::RELATIVE)
+          if(stmt.a_i < 0 && (!defmode && stmt.atyp != lc1atyp::RELATIVE))
             goto on_invalid_arg;
       }
       env.stmts.emplace_back(move(stmt));
@@ -185,7 +218,10 @@ static void optimize(lc1cenv &env) {
 
 int main(int argc, char *argv[]) {
   if(argc == 1) {
-    cerr << "lc1c SOURCE_FILE\n"
+    cerr << "lc1c [-o OUTPUT_FILE] [-U] SOURCE_FILE\n"
+            "\noptions:\n"
+            " -o  specfify an compilation output filename\n"
+            " -U  unix2dos mode -- insert carriage returns after each compiled line\n"
             "\nreturn codes:\n"
             "  0  success\n"
             "  1  invalid input data or arguments\n"
@@ -194,8 +230,24 @@ int main(int argc, char *argv[]) {
   }
 
   lc1cenv env;
-  for(int i = 1; i < argc; ++i)
-    read_file(env, argv[i]);
+  env.compout = &cout;
+  env.flag_u2d = false;
+  for(int i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    switch(*arg) {
+      case '\0': continue;
+      case '-': {
+          bool used_optarg;
+          if(!handle_option(env, arg + 1, argv[i + 1], used_optarg))
+            return 1;
+          if(used_optarg)
+            ++i;
+          break;
+      }
+      default:
+        read_file(env, arg);
+    }
+  }
 
   optimize(env);
 
@@ -263,13 +315,13 @@ int main(int argc, char *argv[]) {
 
   // print code
   stcnt = 0;
-  cerr << "==== compiled code: ====\n";
+  if(env.compout == &cout) cerr << "==== compiled code: ====\n";
   for(const auto &i : env.stmts) {
     if(i.do_ignore) continue;
-    cout << stcnt << ' ' << i.cmd;
+    (*env.compout) << stcnt << ' ' << i.cmd;
     switch(i.atyp) {
       case lc1atyp::ABSOLUTE:
-        cout << ' ' << i.a_i;
+        (*env.compout) << ' ' << i.a_i;
         [[fallthrough]];
       case lc1atyp::NONE:
         break;
@@ -277,9 +329,12 @@ int main(int argc, char *argv[]) {
         cerr << "\nlc1c: INTERNAL ERROR: impossible state i.atyp (" << lc1atyp2str(i.atyp) << ") != (ABSOLUTE|NONE) \n";
         return 2;
     }
-    cout << '\n';
+    if(env.flag_u2d) (*env.compout) << '\r';
+    (*env.compout) << '\n';
     ++stcnt;
   }
+
+  if(env.compout != &cout) delete env.compout;
 
   return 0;
 }
