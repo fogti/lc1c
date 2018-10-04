@@ -148,18 +148,16 @@ static void optimize(lc1cenv &env) {
   typedef vector<lc1stmt>::iterator it_t;
   struct optdat_t {
     it_t it;
-    bool erase_prev, erase_cur;
+    // erase[0] = prev; erase[1] = cur
+    bool erase[2];
   };
   static const auto fn_erase_both = [](optdat_t &o) {
-    o.erase_prev = true;
-    o.erase_cur = true;
+    o.erase[0] = o.erase[1] = true;
   };
-  static const auto fn_erase_first = [](optdat_t &o) {
-    o.erase_prev = true;
-  };
-  static const auto fn_erase_secnd = [](optdat_t &o) {
-    o.erase_cur = true;
-  };
+  static const auto fn_erase_first = [](optdat_t &o)
+    { o.erase[0] = true; };
+  static const auto fn_erase_secnd = [](optdat_t &o)
+    { o.erase[1] = true; };
   static const unordered_map<string, function<void (optdat_t &o)>> jt = {
     { "addsub", fn_erase_both },
     { "subadd", fn_erase_both },
@@ -171,9 +169,11 @@ static void optimize(lc1cenv &env) {
     { "jmpjmp", fn_erase_secnd },
     { "jmpjps", fn_erase_secnd },
     { "jmpjpo", fn_erase_secnd },
+    { "jpsjps", fn_erase_secnd },
+    { "jpojpo", fn_erase_secnd },
     { "calret", [](optdat_t &o) {
       strncpy((o.it - 1)->cmd, "jmp", 4);
-      o.erase_cur = true;
+      o.erase[1] = true;
     }},
   };
   auto &stmts = env.stmts;
@@ -227,11 +227,10 @@ static void optimize(lc1cenv &env) {
         if(fnit == jt.end()) goto do_cont;
         if(env.flag_verbose) cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
       }
-      od.erase_prev = false;
-      od.erase_cur = false;
+      od.erase[0] = od.erase[1] = false;
       fnit->second(od);
-      if(od.erase_prev || od.erase_cur) {
-        oit = stmts.erase(oit - od.erase_prev, oit + od.erase_cur);
+      if(od.erase[0] || od.erase[1]) {
+        oit = stmts.erase(oit - od.erase[0], oit + od.erase[1]);
         continue;
       }
 
