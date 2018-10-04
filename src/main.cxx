@@ -13,7 +13,7 @@
 using namespace std;
 
 static bool handle_option(lc1cenv &env, const char *opt, const char *optarg, bool &used_optarg) {
-  const char *offending_arg = opt;
+  const char *offending_arg = opt - 1;
   used_optarg = false;
   switch(*opt) {
     case 'o':
@@ -22,7 +22,6 @@ static bool handle_option(lc1cenv &env, const char *opt, const char *optarg, boo
       used_optarg = true;
       env.compout = new ofstream(optarg);
       if(!env.compout || !(*env.compout)) {
-        cerr << "argument to option = " << optarg << '\n';
         offending_arg = optarg;
         if(env.compout) {
           delete env.compout;
@@ -35,13 +34,21 @@ static bool handle_option(lc1cenv &env, const char *opt, const char *optarg, boo
       if(opt[1]) goto error;
       env.flag_u2d = true;
       break;
+    case 'v':
+      if(opt[1]) goto error;
+      env.flag_verbose = true;
+      break;
+    case 'O':
+      if(strncmp(opt + 1, "0", 2)) goto error;
+      env.flag_noopt = true;
+      break;
     default:
       goto error;
   }
 
   return true;
  error:
-  cerr << "lc1c: INVOCATION ERROR: invalid argument " << (offending_arg ? offending_arg : opt) << '\n';
+  cerr << "lc1c: INVOCATION ERROR: invalid argument " << (offending_arg ? offending_arg : opt - 1) << '\n';
   return false;
 }
 
@@ -82,18 +89,19 @@ static void read_file(lc1cenv &env, const char *file) {
       if(tok.empty()) continue;
     }
 
-    string cmd = move(tok);
-    if(cmd.size() > 3) {
-      file_parse_error(file, lineno, "got invalid command " + cmd);
-      continue;
+    string cmd = move(tok), errmsgtxt;
+    stmt.do_ignore = (cmd.size() == 4 && cmd[3] != '*');
+    if(!stmt.do_ignore && cmd.size() > 3) {
+      errmsgtxt = "got invalid command '" + cmd + "'";
+      goto on_cmd_error;
     }
 
     str_lower(cmd);
     getline(ss, tok);
     str_trim(tok);
     if(tok.empty() == cmd2has_arg(cmd)) {
-      file_parse_error(file, lineno, "invalid invocation of command " + cmd);
-      continue;
+      errmsgtxt = "invalid invocation of command '" + cmd + "'";
+      goto on_cmd_error;
     }
 
     strncpy(stmt.cmd, cmd.c_str(), 4);
@@ -101,8 +109,7 @@ static void read_file(lc1cenv &env, const char *file) {
     if(!tok.empty()) {
       // parse arg addr type
       bool defmode = (cmd == "def");
-      stmt.atyp = arg2atyp(tok, defmode);
-      switch(stmt.atyp) {
+      switch((stmt.atyp = arg2atyp(tok, defmode))) {
         case lc1atyp::INVALID:
           goto on_invalid_arg;
         case lc1atyp::LABEL:
@@ -124,13 +131,16 @@ static void read_file(lc1cenv &env, const char *file) {
       env.stmts.emplace_back(move(stmt));
       continue;
       on_invalid_arg:
-        file_parse_error(file, lineno, "invalid argument '" + tok + "'");
+        errmsgtxt = "invalid argument '" + tok + "'";
     } else {
       stmt.atyp = lc1atyp::NONE;
       stmt.a_s.clear();
       stmt.a_i = 0;
       env.stmts.emplace_back(move(stmt));
+      continue;
     }
+    on_cmd_error:
+      file_parse_error(file, lineno, errmsgtxt);
   }
 }
 
@@ -144,10 +154,27 @@ static void optimize(lc1cenv &env) {
     o.erase_prev = true;
     o.erase_cur = true;
   };
+  static const auto fn_erase_first = [](optdat_t &o) {
+    o.erase_prev = true;
+  };
+  static const auto fn_erase_secnd = [](optdat_t &o) {
+    o.erase_cur = true;
+  };
   static const unordered_map<string, function<void (optdat_t &o)>> jt = {
     { "addsub", fn_erase_both },
     { "subadd", fn_erase_both },
     { "notnot", fn_erase_both },
+    { "ldalda", fn_erase_first },
+    { "ldbldb", fn_erase_first },
+    { "andand", fn_erase_secnd },
+    { "mabmab", fn_erase_secnd },
+    { "jmpjmp", fn_erase_secnd },
+    { "jmpjps", fn_erase_secnd },
+    { "jmpjpo", fn_erase_secnd },
+    { "calret", [](optdat_t &o) {
+      strncpy((o.it - 1)->cmd, "jmp", 4);
+      o.erase_cur = true;
+    }},
   };
   auto &stmts = env.stmts;
   if(stmts.size() < 2) return;
@@ -198,7 +225,7 @@ static void optimize(lc1cenv &env) {
         fname += oit->cmd;
         fnit = jt.find(fname);
         if(fnit == jt.end()) goto do_cont;
-        cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
+        if(env.flag_verbose) cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
       }
       od.erase_prev = false;
       od.erase_cur = false;
@@ -216,12 +243,64 @@ static void optimize(lc1cenv &env) {
   }
 }
 
+typedef unordered_map<std::string, size_t> labels_t;
+
+static void mark_idconst(const lc1cenv &env, labels_t &labels, const int value) {
+  static const vector<std::string> cmd2hi = {
+    "LDA", "LDB", "MOV", "MAB", "ADD", "SUB", "AND", "NOT",
+    "JMP", "JPS", "JPO", "CAL", "RET", "RRA", "RLA", "HLT"
+  };
+
+  const uint8_t val_lo = value & 63, val_hi = value >> 6;
+  string needed_cmd;
+  try { needed_cmd = cmd2hi.at(val_hi); }
+  catch(...) { return; }
+  const bool cmd_has_arg = ([&needed_cmd] {
+    string cmd = needed_cmd;
+    str_lower(cmd);
+    return cmd2has_arg(cmd);
+  })();
+  if(!cmd_has_arg && val_lo) return;
+
+  auto &stmts = env.stmts;
+  auto it = stmts.begin();
+  size_t stcnt = 0;
+  for(; it != stmts.end(); ++it) {
+    if(it->do_ignore)
+      continue;
+    if(!it->cmd || needed_cmd != it->cmd || it->atyp != lc1atyp::ABSOLUTE)
+      goto inc_cont;
+    if(!cmd_has_arg || it->a_i == val_lo)
+      break;
+    inc_cont:
+      ++stcnt;
+  }
+  if(it != stmts.end()) {
+    if(env.flag_verbose) cerr << "optimize: re-use existing const " << value << " @ " << stcnt << '\n';
+    labels["$" + to_string(value)] = stcnt;
+  }
+}
+
+static void optimize_idconsts(const lc1cenv &env, labels_t &labels) {
+  vector<int> idc_vals;
+  for(const auto &i : env.stmts)
+    if(i.atyp == lc1atyp::IDCONST)
+      idc_vals.emplace_back(i.a_i);
+  // uniquify idc_vals
+  sort(idc_vals.begin(), idc_vals.end());
+  idc_vals.erase(unique(idc_vals.begin(), idc_vals.end()), idc_vals.end());
+  for(const auto i : idc_vals)
+    mark_idconst(env, labels, i);
+}
+
 int main(int argc, char *argv[]) {
   if(argc == 1) {
-    cerr << "lc1c [-o OUTPUT_FILE] [-U] SOURCE_FILE\n"
+    cerr << "lc1c [-o OUTPUT_FILE] SOURCE_FILE\n"
             "\noptions:\n"
             " -o  specfify an compilation output filename\n"
             " -U  unix2dos mode -- insert carriage returns after each compiled line\n"
+            " -O0 disable optimizations\n"
+            " -v  be more verbose\n"
             "\nreturn codes:\n"
             "  0  success\n"
             "  1  invalid input data or arguments\n"
@@ -232,6 +311,8 @@ int main(int argc, char *argv[]) {
   lc1cenv env;
   env.compout = &cout;
   env.flag_u2d = false;
+  env.flag_verbose = false;
+  env.flag_noopt = false;
   for(int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     switch(*arg) {
@@ -249,11 +330,14 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  optimize(env);
+  // allows us to test the arg-parse engine
+  if(env.stmts.empty())
+    return 0;
+
+  if(!env.flag_noopt)
+    optimize(env);
 
   unordered_map<std::string, size_t> labels;
-  const size_t stmtcnt = env.stmts.size();
-  vector<int> idc_vals;
   size_t stcnt = 0;
   // generate map of labels
   for(auto &i : env.stmts) {
@@ -264,9 +348,21 @@ int main(int argc, char *argv[]) {
     }
     transform(i.cmd, i.cmd + 3, i.cmd, ::toupper);
 
-    if(i.atyp == lc1atyp::RELATIVE) {
-      i.atyp = lc1atyp::ABSOLUTE;
-      i.a_i += stcnt;
+    switch(i.atyp) {
+      case lc1atyp::RELATIVE:
+        i.atyp = lc1atyp::ABSOLUTE;
+        i.a_i += stcnt;
+        break;
+      case lc1atyp::LABEL:
+        try {
+          i.a_i = labels.at(i.a_s);
+          string().swap(i.a_s);
+          i.atyp = lc1atyp::ABSOLUTE;
+        } catch(...) {
+          // do nothing
+        }
+        break;
+      default: break;
     }
 
     ++stcnt;
@@ -274,31 +370,33 @@ int main(int argc, char *argv[]) {
 
   // resolve labels
   for(auto &i : env.stmts) {
-    if(i.do_ignore) continue;
-    switch(i.atyp) {
-      case lc1atyp::LABEL:
-        try {
-          i.a_i = labels.at(i.a_s);
-        } catch(...) {
-          cerr << "lc1c: ERROR: undefined label '" << i.a_s << "'\n";
-          return 1;
-        }
-        string().swap(i.a_s);
-        break;
-      case lc1atyp::IDCONST: {
-        const string lblnam = "$" + to_string(i.a_i);
-        const auto it = labels.find(lblnam);
-        if(it == labels.end()) {
-          idc_vals.emplace_back(i.a_i);
-          i.a_i = stcnt + idc_vals.size() - 1;
-          labels[lblnam] = i.a_i;
-        } else {
-          i.a_i = it->second;
-        }
-        break;
-      }
-      default:
-        continue;
+    if(i.do_ignore || i.atyp != lc1atyp::LABEL) continue;
+    try {
+      i.a_i = labels.at(i.a_s);
+      string().swap(i.a_s);
+      i.atyp = lc1atyp::ABSOLUTE;
+    } catch(...) {
+      cerr << "lc1c: ERROR: undefined label '" << i.a_s << "'\n";
+      return 1;
+    }
+  }
+
+  if(!env.flag_noopt)
+    optimize_idconsts(env, labels);
+
+  // resolve idconsts
+  const size_t stmtcnt = env.stmts.size();
+  vector<int> idc_vals;
+  for(auto &i : env.stmts) {
+    if(i.do_ignore || i.atyp != lc1atyp::IDCONST) continue;
+    const string lblnam = "$" + to_string(i.a_i);
+    const auto it = labels.find(lblnam);
+    if(it == labels.end()) {
+      idc_vals.emplace_back(i.a_i);
+      i.a_i = stcnt + idc_vals.size() - 1;
+      labels[lblnam] = i.a_i;
+    } else {
+      i.a_i = it->second;
     }
     i.atyp = lc1atyp::ABSOLUTE;
   }
@@ -315,7 +413,7 @@ int main(int argc, char *argv[]) {
 
   // print code
   stcnt = 0;
-  if(env.compout == &cout) cerr << "==== compiled code: ====\n";
+  if(env.flag_verbose && env.compout == &cout) cerr << "==== compiled code: ====\n";
   for(const auto &i : env.stmts) {
     if(i.do_ignore) continue;
     (*env.compout) << stcnt << ' ' << i.cmd;

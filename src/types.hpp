@@ -43,5 +43,5 @@ struct lc1stmt {
 struct lc1cenv {
   std::vector<lc1stmt> stmts;
   std::ostream *compout;
-  bool flag_u2d;
+  bool flag_u2d, flag_verbose, flag_noopt;
 };
