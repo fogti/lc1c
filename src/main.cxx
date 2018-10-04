@@ -158,6 +158,10 @@ static void optimize(lc1cenv &env) {
     { o.erase[0] = true; };
   static const auto fn_erase_secnd = [](optdat_t &o)
     { o.erase[1] = true; };
+  static const auto fn_erase_rr2 = [](optdat_t &o) {
+    if((o.it - 1)->a_i == o.it->a_i)
+      fn_erase_both(o);
+  };
   static const unordered_map<string, function<void (optdat_t &o)>> jt = {
     { "addsub", fn_erase_both },
     { "subadd", fn_erase_both },
@@ -171,6 +175,10 @@ static void optimize(lc1cenv &env) {
     { "jmpjpo", fn_erase_secnd },
     { "jpsjps", fn_erase_secnd },
     { "jpojpo", fn_erase_secnd },
+    { "retret", fn_erase_secnd },
+    { "hlthlt", fn_erase_secnd },
+    { "rrarrl", fn_erase_rr2 },
+    { "rrlrra", fn_erase_rr2 },
     { "calret", [](optdat_t &o) {
       strncpy((o.it - 1)->cmd, "jmp", 4);
       o.erase[1] = true;
