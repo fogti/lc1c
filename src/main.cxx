@@ -119,7 +119,7 @@ static void read_file(lc1cenv &env, const char *file) {
         default:
           if(!defmode && tok.size() == 1)
             goto on_invalid_arg;
-          stmt.a_s.clear();
+          absolute_clear(stmt.a_s);
           try {
             stmt.a_i = stoi(tok.substr(!defmode));
           } catch(...) {
@@ -134,7 +134,7 @@ static void read_file(lc1cenv &env, const char *file) {
         errmsgtxt = "invalid argument '" + tok + "'";
     } else {
       stmt.atyp = lc1atyp::NONE;
-      stmt.a_s.clear();
+      absolute_clear(stmt.a_s);
       stmt.a_i = 0;
       env.stmts.emplace_back(move(stmt));
       continue;
@@ -363,7 +363,7 @@ int main(int argc, char *argv[]) {
       case lc1atyp::LABEL:
         try {
           i.a_i = labels.at(i.a_s);
-          string().swap(i.a_s);
+          absolute_clear(i.a_s);
           i.atyp = lc1atyp::ABSOLUTE;
         } catch(...) {
           // do nothing
@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
     if(i.do_ignore || i.atyp != lc1atyp::LABEL) continue;
     try {
       i.a_i = labels.at(i.a_s);
-      string().swap(i.a_s);
+      absolute_clear(i.a_s);
       i.atyp = lc1atyp::ABSOLUTE;
     } catch(...) {
       cerr << "lc1c: ERROR: undefined label '" << i.a_s << "'\n";
@@ -407,6 +407,7 @@ int main(int argc, char *argv[]) {
     }
     i.atyp = lc1atyp::ABSOLUTE;
   }
+  absolute_clear(labels);
   env.stmts.reserve(stmtcnt + idc_vals.size());
   {
     lc1stmt stmt;

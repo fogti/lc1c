@@ -10,3 +10,8 @@ bool cmd2has_arg(const std::string &command) noexcept;
 lc1atyp arg2atyp(const std::string &command, bool &defmode) noexcept;
 
 auto lc1atyp2str(const lc1atyp lat) noexcept -> const char*;
+
+template<class Cont>
+void absolute_clear(Cont &cont) noexcept {
+  Cont().swap(cont);
+}
