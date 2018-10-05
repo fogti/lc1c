@@ -177,8 +177,8 @@ static void optimize(lc1cenv &env) {
     { "jpojpo", fn_erase_secnd },
     { "retret", fn_erase_secnd },
     { "hlthlt", fn_erase_secnd },
-    { "rrarrl", fn_erase_rr2 },
-    { "rrlrra", fn_erase_rr2 },
+    { "rrarla", fn_erase_rr2 },
+    { "rlarra", fn_erase_rr2 },
     { "calret", [](optdat_t &o) {
       strncpy((o.it - 1)->cmd, "jmp", 4);
       o.erase[1] = true;
