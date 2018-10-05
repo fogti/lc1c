@@ -162,24 +162,33 @@ static void optimize(lc1cenv &env) {
     if((o.it - 1)->a_i == o.it->a_i)
       fn_erase_both(o);
   };
+  static const auto fn_swap = [](optdat_t &o) {
+    swap(*(o.it), *(o.it - 1));
+  };
   static const unordered_map<string, function<void (optdat_t &o)>> jt = {
-    { "addsub", fn_erase_both },
-    { "subadd", fn_erase_both },
-    { "notnot", fn_erase_both },
-    { "ldalda", fn_erase_first },
+    // opposite ops
+    { "addsub", fn_erase_both  }, { "subadd", fn_erase_both  },
+    { "notnot", fn_erase_both  },
+    // direct overwrite reg a
+    { "ldalda", fn_erase_first }, { "notlda", fn_erase_first },
+    { "addlda", fn_erase_first }, { "sublda", fn_erase_first },
+    // direct overwrite reg b
     { "ldbldb", fn_erase_first },
-    { "andand", fn_erase_secnd },
-    { "mabmab", fn_erase_secnd },
+    { "mabldb", fn_erase_first }, { "ldbmab", fn_erase_first },
+    // no-ops
+    { "andand", fn_erase_secnd }, { "mabmab", fn_erase_secnd },
     { "jmpjmp", fn_erase_secnd },
-    { "jmpjps", fn_erase_secnd },
-    { "jmpjpo", fn_erase_secnd },
-    { "jpsjps", fn_erase_secnd },
-    { "jpojpo", fn_erase_secnd },
+    { "jmpjps", fn_erase_secnd }, { "jpsjps", fn_erase_secnd },
+    { "jmpjpo", fn_erase_secnd }, { "jpojpo", fn_erase_secnd },
     { "retret", fn_erase_secnd },
-    { "hlthlt", fn_erase_secnd },
-    { "rrarla", fn_erase_rr2 },
-    { "rlarra", fn_erase_rr2 },
-    { "calret", [](optdat_t &o) {
+    { "retcal", fn_erase_secnd }, { "retjmp", fn_erase_secnd },
+    { "hlthlt", fn_erase_secnd }, { "hltjmp", fn_erase_secnd },
+    // possible opposite ops
+    { "rrarla", fn_erase_rr2   }, { "rlarra", fn_erase_rr2   },
+    // swaps for easier optimizations (independent ops)
+    { "ldbnot", fn_swap },
+    // translations
+    { "calret", [](optdat_t &o) { // tail-call
       strncpy((o.it - 1)->cmd, "jmp", 4);
       o.erase[1] = true;
     }},
@@ -346,11 +355,13 @@ int main(int argc, char *argv[]) {
 
   unordered_map<std::string, size_t> labels;
   size_t stcnt = 0;
+  auto &stmts = env.stmts;
   // generate map of labels
-  for(auto &i : env.stmts) {
-    i.do_ignore = !strncmp(i.cmd, "-L-", 3);
-    if(i.do_ignore) {
+  for(auto it = stmts.begin(); it != stmts.end();) {
+    auto &i = *it;
+    if(!strncmp(i.cmd, "-L-", 3)) {
       labels[i.a_s] = stcnt;
+      it = stmts.erase(it);
       continue;
     }
     transform(i.cmd, i.cmd + 3, i.cmd, ::toupper);
@@ -362,9 +373,11 @@ int main(int argc, char *argv[]) {
         break;
       case lc1atyp::LABEL:
         try {
-          i.a_i = labels.at(i.a_s);
-          absolute_clear(i.a_s);
+          i.a_i  = labels.at(i.a_s);
+          // NOTE: labels.at might throw an exception, only update atyp
+          // if no exception is thrown
           i.atyp = lc1atyp::ABSOLUTE;
+          absolute_clear(i.a_s);
         } catch(...) {
           // do nothing
         }
@@ -373,11 +386,12 @@ int main(int argc, char *argv[]) {
     }
 
     ++stcnt;
+    ++it;
   }
 
   // resolve labels
-  for(auto &i : env.stmts) {
-    if(i.do_ignore || i.atyp != lc1atyp::LABEL) continue;
+  for(auto &i : stmts) {
+    if(i.atyp != lc1atyp::LABEL) continue;
     try {
       i.a_i = labels.at(i.a_s);
       absolute_clear(i.a_s);
@@ -392,10 +406,10 @@ int main(int argc, char *argv[]) {
     optimize_idconsts(env, labels);
 
   // resolve idconsts
-  const size_t stmtcnt = env.stmts.size();
+  const size_t stmtcnt = stmts.size();
   vector<int> idc_vals;
-  for(auto &i : env.stmts) {
-    if(i.do_ignore || i.atyp != lc1atyp::IDCONST) continue;
+  for(auto &i : stmts) {
+    if(i.atyp != lc1atyp::IDCONST) continue;
     const string lblnam = "$" + to_string(i.a_i);
     const auto it = labels.find(lblnam);
     if(it == labels.end()) {
@@ -408,22 +422,21 @@ int main(int argc, char *argv[]) {
     i.atyp = lc1atyp::ABSOLUTE;
   }
   absolute_clear(labels);
-  env.stmts.reserve(stmtcnt + idc_vals.size());
+  stmts.reserve(stmtcnt + idc_vals.size());
   {
     lc1stmt stmt;
     strcpy(stmt.cmd, "DEF");
     stmt.atyp = lc1atyp::ABSOLUTE;
     for(const auto &i : idc_vals) {
       stmt.a_i = i;
-      env.stmts.emplace_back(stmt);
+      stmts.emplace_back(stmt);
     }
   }
 
   // print code
   stcnt = 0;
   if(env.flag_verbose && env.compout == &cout) cerr << "==== compiled code: ====\n";
-  for(const auto &i : env.stmts) {
-    if(i.do_ignore) continue;
+  for(const auto &i : stmts) {
     (*env.compout) << stcnt << ' ' << i.cmd;
     switch(i.atyp) {
       case lc1atyp::ABSOLUTE:
