@@ -104,7 +104,9 @@ static void read_file(lc1cenv &env, const char *file) {
       goto on_cmd_error;
     }
 
-    strncpy(stmt.cmd, cmd.c_str(), 4);
+    strncpy(stmt.cmd, cmd.c_str(), 3);
+    // make sure that '*' is reset
+    stmt.cmd[3] = 0;
 
     if(!tok.empty()) {
       // parse arg addr type
