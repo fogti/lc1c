@@ -10,7 +10,10 @@ enum class lc1atyp {
   INVALID, NONE, ABSOLUTE, RELATIVE, IDCONST, LABEL
 };
 
-// LABEL has a special cmd = "-L-\0"
+#define LABEL_CMD "-L-"
+// strlen(cmd) = LC1CMD_LEN
+#define LC1CMD_LEN 3
+
 struct lc1stmt {
   char cmd[4];
 
@@ -38,12 +41,14 @@ struct lc1stmt {
     do_ignore = o.do_ignore;
     return *this;
   }
+
+  auto to_string() const -> std::string;
 };
 
 struct lc1cenv {
   std::vector<lc1stmt> stmts;
   std::ostream *compout;
-  bool flag_u2d, flag_verbose, flag_noopt;
+  bool flag_u2d, flag_verbose, flag_noopt, flag_deepopt;
 };
 
 typedef std::unordered_map<std::string, size_t> labels_t;

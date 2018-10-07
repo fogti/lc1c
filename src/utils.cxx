@@ -61,3 +61,30 @@ auto lc1atyp2str(const lc1atyp atyp) noexcept -> const char* {
   }
   return "unknown";
 }
+
+auto lc1stmt::to_string() const -> string {
+  string ret = cmd;
+  char prefix = 0;
+  switch(atyp) {
+    case lc1atyp::INVALID:
+      ret += " (invalid)";
+      [[fallthrough]];
+
+    case lc1atyp::NONE    : return ret;
+    case lc1atyp::ABSOLUTE: break;
+    case lc1atyp::RELATIVE: prefix = '.'; break;
+    case lc1atyp::IDCONST : prefix = '$'; break;
+
+    case lc1atyp::LABEL:
+      (ret += ' ') += a_s;
+      return ret;
+
+    default:
+      return ret + " (unexpected arg_type)";
+  }
+
+  ret += ' ';
+  if(prefix) ret += prefix;
+  ret += std::to_string(a_i);
+  return ret;
+}

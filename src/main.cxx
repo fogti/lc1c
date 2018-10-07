@@ -39,8 +39,8 @@ static bool handle_option(lc1cenv &env, const char *opt, const char *optarg, boo
       env.flag_verbose = true;
       break;
     case 'O':
-      if(strncmp(opt + 1, "0", 2)) goto error;
-      env.flag_noopt = true;
+      env.flag_noopt = !strncmp(opt + 1, "0", 2);
+      env.flag_deepopt = !strncmp(opt + 1, "D", 2);
       break;
     default:
       goto error;
@@ -79,7 +79,7 @@ static void read_file(lc1cenv &env, const char *file) {
     if(tok.empty()) continue;
     if(tok.back() == ':') {
       // got label
-      strcpy(stmt.cmd, "-L-");
+      strcpy(stmt.cmd, LABEL_CMD);
       stmt.atyp = lc1atyp::LABEL;
       stmt.a_s  = move(tok);
       stmt.a_s.pop_back();
@@ -90,8 +90,8 @@ static void read_file(lc1cenv &env, const char *file) {
     }
 
     string cmd = move(tok), errmsgtxt;
-    stmt.do_ignore = (cmd.size() == 4 && cmd[3] != '*');
-    if(!stmt.do_ignore && cmd.size() > 3) {
+    stmt.do_ignore = (cmd.size() == (LC1CMD_LEN + 1) && cmd[LC1CMD_LEN] != '*');
+    if(!stmt.do_ignore && cmd.size() > LC1CMD_LEN) {
       errmsgtxt = "got invalid command '" + cmd + "'";
       goto on_cmd_error;
     }
@@ -104,9 +104,9 @@ static void read_file(lc1cenv &env, const char *file) {
       goto on_cmd_error;
     }
 
-    strncpy(stmt.cmd, cmd.c_str(), 3);
+    strncpy(stmt.cmd, cmd.c_str(), LC1CMD_LEN);
     // make sure that '*' is reset
-    stmt.cmd[3] = 0;
+    stmt.cmd[LC1CMD_LEN] = 0;
 
     if(!tok.empty()) {
       // parse arg addr type
@@ -166,6 +166,7 @@ int main(int argc, char *argv[]) {
   env.flag_u2d = false;
   env.flag_verbose = false;
   env.flag_noopt = false;
+  env.flag_deepopt = false;
   for(int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     switch(*arg) {
@@ -187,8 +188,13 @@ int main(int argc, char *argv[]) {
   if(env.stmts.empty())
     return 0;
 
-  if(!env.flag_noopt)
+  if(!env.flag_noopt) {
     optimize(env);
+    if(env.flag_deepopt) {
+      optimize_deep(env);
+      optimize(env);
+    }
+  }
 
   unordered_map<std::string, size_t> labels;
   size_t stcnt = 0;
@@ -196,12 +202,12 @@ int main(int argc, char *argv[]) {
   // generate map of labels
   for(auto it = stmts.begin(); it != stmts.end();) {
     auto &i = *it;
-    if(!strncmp(i.cmd, "-L-", 3)) {
+    if(!strncmp(i.cmd, LABEL_CMD, LC1CMD_LEN)) {
       labels[i.a_s] = stcnt;
       it = stmts.erase(it);
       continue;
     }
-    transform(i.cmd, i.cmd + 3, i.cmd, ::toupper);
+    transform(i.cmd, i.cmd + LC1CMD_LEN, i.cmd, ::toupper);
 
     switch(i.atyp) {
       case lc1atyp::RELATIVE:
@@ -234,7 +240,7 @@ int main(int argc, char *argv[]) {
       absolute_clear(i.a_s);
       i.atyp = lc1atyp::ABSOLUTE;
     } catch(...) {
-      cerr << "lc1c: ERROR: undefined label '" << i.a_s << "'\n";
+      cerr << "lc1c: ERROR: undefined label '" << i.a_s << "' @ cmd " << i.cmd << "\n";
       return 1;
     }
   }
