@@ -6,5 +6,5 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include_directories("${PROJECT_SOURCE_DIR}/src")
-add_executable(lc1c src/main.cxx src/utils.cxx)
+add_executable(lc1c src/main.cxx src/optimize.cxx src/utils.cxx)
 install(TARGETS lc1c DESTINATION "${INSTALL_BIN_DIR}")

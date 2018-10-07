@@ -45,3 +45,5 @@ struct lc1cenv {
   std::ostream *compout;
   bool flag_u2d, flag_verbose, flag_noopt;
 };
+
+typedef std::unordered_map<std::string, size_t> labels_t;
