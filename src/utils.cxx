@@ -72,12 +72,9 @@ auto lc1atyp2str(const lc1atyp atyp) noexcept -> const char* {
 
 lc1cmd str2cmd(string cmd) noexcept {
   static const unordered_map<string, lc1cmd> lut = {
-#define JTE(X) { #X, LC1CMD_##X },
-    JTE(LDA) JTE(LDB) JTE(MOV) JTE(MAB)  JTE(ADD) JTE(SUB) JTE(AND) JTE(NOT)
-    JTE(JMP) JTE(JPS) JTE(JPO) JTE(CAL)  JTE(RET) JTE(RRA) JTE(RLA) JTE(HLT)
-    // virtual commands
-    JTE(DEF)
-#undef JTE
+# define CMDJTE(X) { #X, LC1CMD_##X },
+# include "cmdlist.h"
+# undef CMDJTE
   };
   std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
   const auto it = lut.find(cmd);
@@ -86,12 +83,10 @@ lc1cmd str2cmd(string cmd) noexcept {
 
 auto lc1cmd2str(const lc1cmd cmd) noexcept -> const char * {
   switch(cmd) {
-#define JTE(X) case LC1CMD_##X: return #X;
-    JTE(LDA) JTE(LDB) JTE(MOV) JTE(MAB)  JTE(ADD) JTE(SUB) JTE(AND) JTE(NOT)
-    JTE(JMP) JTE(JPS) JTE(JPO) JTE(CAL)  JTE(RET) JTE(RRA) JTE(RLA) JTE(HLT)
-    // virtual commands
-    JTE(DEF) JTE(LABEL)
-#undef JTE
+# define CMDJTE(X) case LC1CMD_##X: return #X;
+# include "cmdlist.h"
+    CMDJTE(LABEL)
+# undef JTE
     default: return "-UKN-";
   }
 }
