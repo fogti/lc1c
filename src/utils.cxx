@@ -7,15 +7,20 @@
 
 using namespace std;
 
+template <typename I>
+static string n2hexstr(I w, size_t hex_len = sizeof(I)<<1) {
+  static const char* digits = "0123456789ABCDEF";
+  string rc(hex_len,'0');
+  for(size_t i=0, j=(hex_len-1)*4 ; i<hex_len; ++i,j-=4)
+    rc[i] = digits[(w>>j) & 0x0f];
+  return rc;
+}
+
 void str_trim(string &s) {
   static const string whitespace = "\t\n\v\f\r ";
   const size_t tmp = s.find_last_not_of(whitespace);
   if(tmp != string::npos) s.erase(tmp + 1);
   s.erase(0, s.find_first_not_of(whitespace));
-}
-
-void str_lower(string &s) noexcept {
-  std::transform(s.begin(), s.end(), s.begin(), ::tolower);
 }
 
 void file_parse_error(const char *file, size_t lineno, const string &msg) {
@@ -24,17 +29,20 @@ void file_parse_error(const char *file, size_t lineno, const string &msg) {
   cerr << ": " << msg << '\n';
 }
 
-bool cmd2has_arg(const string &command) noexcept {
-  static const unordered_set<string> lut = {
-    "cal", "def", "jmp", "jpo", "jps", "lda", "ldb", "mov", "rla", "rra"
+bool cmd2has_arg(const lc1cmd cmd) noexcept {
+  static const unordered_set<lc1cmd> lut = {
+#define JTE(X) LC1CMD_##X,
+    JTE(CAL) JTE(DEF) JTE(JMP) JTE(JPO) JTE(JPS)
+    JTE(LDA) JTE(LDB) JTE(MOV) JTE(RLA) JTE(RRA)
+#undef JTE
   };
-  return lut.find(command) != lut.end();
+  return lut.find(cmd) != lut.end();
 }
 
-lc1atyp arg2atyp(const string &command, bool &defmode) noexcept {
+lc1atyp arg2atyp(const char *arg, bool &defmode) noexcept {
   const bool defmode_cached = defmode;
   defmode = false;
-  switch(command.front()) {
+  switch(*arg) {
     case '@': return lc1atyp::ABSOLUTE;
     case '.': return lc1atyp::RELATIVE;
     case '$': return lc1atyp::IDCONST;
@@ -46,7 +54,7 @@ lc1atyp arg2atyp(const string &command, bool &defmode) noexcept {
         return lc1atyp::ABSOLUTE;
       }
       [[fallthrough]];
-    default:  return isalpha(command.front()) ? lc1atyp::LABEL : lc1atyp::INVALID;
+    default:  return isalpha(*arg) ? lc1atyp::LABEL : lc1atyp::INVALID;
   }
 }
 
@@ -62,8 +70,34 @@ auto lc1atyp2str(const lc1atyp atyp) noexcept -> const char* {
   return "unknown";
 }
 
+lc1cmd str2cmd(string cmd) noexcept {
+  static const unordered_map<string, lc1cmd> lut = {
+#define JTE(X) { #X, LC1CMD_##X },
+    JTE(LDA) JTE(LDB) JTE(MOV) JTE(MAB)  JTE(ADD) JTE(SUB) JTE(AND) JTE(NOT)
+    JTE(JMP) JTE(JPS) JTE(JPO) JTE(CAL)  JTE(RET) JTE(RRA) JTE(RLA) JTE(HLT)
+    // virtual commands
+    JTE(DEF)
+#undef JTE
+  };
+  std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+  const auto it = lut.find(cmd);
+  return (it == lut.end()) ? LC1CMD_NONE : it->second;
+}
+
+auto lc1cmd2str(const lc1cmd cmd) noexcept -> const char * {
+  switch(cmd) {
+#define JTE(X) case LC1CMD_##X: return #X;
+    JTE(LDA) JTE(LDB) JTE(MOV) JTE(MAB)  JTE(ADD) JTE(SUB) JTE(AND) JTE(NOT)
+    JTE(JMP) JTE(JPS) JTE(JPO) JTE(CAL)  JTE(RET) JTE(RRA) JTE(RLA) JTE(HLT)
+    // virtual commands
+    JTE(DEF) JTE(LABEL)
+#undef JTE
+    default: return "-UKN-";
+  }
+}
+
 auto lc1stmt::to_string() const -> string {
-  string ret = cmd;
+  string ret = lc1cmd2str(cmd);
   char prefix = 0;
   switch(atyp) {
     case lc1atyp::INVALID:

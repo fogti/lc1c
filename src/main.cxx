@@ -79,7 +79,7 @@ static void read_file(lc1cenv &env, const char *file) {
     if(tok.empty()) continue;
     if(tok.back() == ':') {
       // got label
-      strcpy(stmt.cmd, LABEL_CMD);
+      stmt.cmd  = LC1CMD_LABEL;
       stmt.atyp = lc1atyp::LABEL;
       stmt.a_s  = move(tok);
       stmt.a_s.pop_back();
@@ -90,28 +90,30 @@ static void read_file(lc1cenv &env, const char *file) {
     }
 
     string cmd = move(tok), errmsgtxt;
-    stmt.do_ignore = (cmd.size() == (LC1CMD_LEN + 1) && cmd[LC1CMD_LEN] != '*');
-    if(!stmt.do_ignore && cmd.size() > LC1CMD_LEN) {
+    stmt.do_ignore = (cmd.size() == 4 && cmd[3] == '*');
+    if(!stmt.do_ignore && cmd.size() > 3) {
       errmsgtxt = "got invalid command '" + cmd + "'";
       goto on_cmd_error;
     }
 
-    str_lower(cmd);
+    if(stmt.do_ignore) cmd.pop_back();
+    stmt.cmd = str2cmd(cmd);
+    if(!stmt.cmd) {
+      errmsgtxt = "got invalid command '" + cmd + "'";
+      goto on_cmd_error;
+    }
+
     getline(ss, tok);
     str_trim(tok);
-    if(tok.empty() == cmd2has_arg(cmd)) {
+    if(tok.empty() == cmd2has_arg(stmt.cmd)) {
       errmsgtxt = "invalid invocation of command '" + cmd + "'";
       goto on_cmd_error;
     }
 
-    strncpy(stmt.cmd, cmd.c_str(), LC1CMD_LEN);
-    // make sure that '*' is reset
-    stmt.cmd[LC1CMD_LEN] = 0;
-
     if(!tok.empty()) {
       // parse arg addr type
-      bool defmode = (cmd == "def");
-      switch((stmt.atyp = arg2atyp(tok, defmode))) {
+      bool defmode = (cmd == "DEF" || cmd == "def");
+      switch((stmt.atyp = arg2atyp(tok.c_str(), defmode))) {
         case lc1atyp::INVALID:
           goto on_invalid_arg;
         case lc1atyp::LABEL:
@@ -133,7 +135,7 @@ static void read_file(lc1cenv &env, const char *file) {
       env.stmts.emplace_back(move(stmt));
       continue;
       on_invalid_arg:
-        errmsgtxt = "invalid argument '" + tok + "'";
+        errmsgtxt = "invalid argument '" + tok + "' to command '" + cmd + "'";
     } else {
       stmt.atyp = lc1atyp::NONE;
       absolute_clear(stmt.a_s);
@@ -153,6 +155,7 @@ int main(int argc, char *argv[]) {
             " -o  specfify an compilation output filename\n"
             " -U  unix2dos mode -- insert carriage returns after each compiled line\n"
             " -O0 disable optimizations\n"
+            " -OD enable aggressive Basic Block (deep) optimizations\n"
             " -v  be more verbose\n"
             "\nreturn codes:\n"
             "  0  success\n"
@@ -202,12 +205,11 @@ int main(int argc, char *argv[]) {
   // generate map of labels
   for(auto it = stmts.begin(); it != stmts.end();) {
     auto &i = *it;
-    if(!strncmp(i.cmd, LABEL_CMD, LC1CMD_LEN)) {
+    if(i.cmd == LC1CMD_LABEL) {
       labels[i.a_s] = stcnt;
       it = stmts.erase(it);
       continue;
     }
-    transform(i.cmd, i.cmd + LC1CMD_LEN, i.cmd, ::toupper);
 
     switch(i.atyp) {
       case lc1atyp::RELATIVE:
@@ -240,7 +242,7 @@ int main(int argc, char *argv[]) {
       absolute_clear(i.a_s);
       i.atyp = lc1atyp::ABSOLUTE;
     } catch(...) {
-      cerr << "lc1c: ERROR: undefined label '" << i.a_s << "' @ cmd " << i.cmd << "\n";
+      cerr << "lc1c: ERROR: undefined label '" << i.a_s << "' @ cmd " << lc1cmd2str(i.cmd) << "\n";
       return 1;
     }
   }
@@ -268,7 +270,7 @@ int main(int argc, char *argv[]) {
   stmts.reserve(stmtcnt + idc_vals.size());
   {
     lc1stmt stmt;
-    strcpy(stmt.cmd, "DEF");
+    stmt.cmd = LC1CMD_DEF;
     stmt.atyp = lc1atyp::ABSOLUTE;
     for(const auto &i : idc_vals) {
       stmt.a_i = i;
@@ -280,7 +282,7 @@ int main(int argc, char *argv[]) {
   stcnt = 0;
   if(env.flag_verbose && env.compout == &cout) cerr << "==== compiled code: ====\n";
   for(const auto &i : stmts) {
-    (*env.compout) << stcnt << ' ' << i.cmd;
+    (*env.compout) << stcnt << ' ' << lc1cmd2str(i.cmd);
     switch(i.atyp) {
       case lc1atyp::ABSOLUTE:
         (*env.compout) << ' ' << i.a_i;

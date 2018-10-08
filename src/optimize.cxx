@@ -31,31 +31,31 @@ void optimize(lc1cenv &env) {
   static const auto fn_swap = [](optdat_t &o) {
     swap(*(o.it), *(o.it - 1));
   };
-  static const unordered_map<string, function<void (optdat_t &o)>> jt = {
+  static const unordered_map<uint16_t, function<void (optdat_t &o)>> jt = {
     // opposite ops
-    { "addsub", fn_erase_both  }, { "subadd", fn_erase_both  },
-    { "notnot", fn_erase_both  },
+    { 0x1415, fn_erase_both  }, { 0x1514, fn_erase_both  },
+    { 0x1717, fn_erase_both  },
     // direct overwrite reg a
-    { "ldalda", fn_erase_first }, { "notlda", fn_erase_first },
-    { "addlda", fn_erase_first }, { "sublda", fn_erase_first },
+    { 0x1010, fn_erase_first }, { 0x1710, fn_erase_first },
+    { 0x1410, fn_erase_first }, { 0x1510, fn_erase_first },
     // direct overwrite reg b
-    { "ldbldb", fn_erase_first },
-    { "mabldb", fn_erase_first }, { "ldbmab", fn_erase_first },
+    { 0x1111, fn_erase_first },
+    { 0x1311, fn_erase_first }, { 0x1113, fn_erase_first },
     // no-ops
-    { "andand", fn_erase_secnd }, { "mabmab", fn_erase_secnd },
-    { "jmpjmp", fn_erase_secnd },
-    { "jmpjps", fn_erase_secnd }, { "jpsjps", fn_erase_secnd },
-    { "jmpjpo", fn_erase_secnd }, { "jpojpo", fn_erase_secnd },
-    { "retret", fn_erase_secnd },
-    { "retcal", fn_erase_secnd }, { "retjmp", fn_erase_secnd },
-    { "hlthlt", fn_erase_secnd }, { "hltjmp", fn_erase_secnd },
+    { 0x1616, fn_erase_secnd }, { 0x1313, fn_erase_secnd },
+    { 0x1818, fn_erase_secnd },
+    { 0x1819, fn_erase_secnd }, { 0x1919, fn_erase_secnd },
+    { 0x181a, fn_erase_secnd }, { 0x1a1a, fn_erase_secnd },
+    { 0x1c1c, fn_erase_secnd },
+    { 0x1c1b, fn_erase_secnd }, { 0x1c18, fn_erase_secnd },
+    { 0x1f1f, fn_erase_secnd }, { 0x1f18, fn_erase_secnd },
     // possible opposite ops
-    { "rrarla", fn_erase_rr2   }, { "rlarra", fn_erase_rr2   },
+    { 0x1d1e, fn_erase_rr2   }, { 0x1e1d, fn_erase_rr2   },
     // swaps for easier optimizations (independent ops)
-    { "ldbnot", fn_swap },
+    { 0x1117, fn_swap },
     // translations
-    { "calret", [](optdat_t &o) { // tail-call
-      strncpy((o.it - 1)->cmd, "jmp", 4);
+    { 0x1b1c, [](optdat_t &o) { // tail-call
+      (o.it - 1)->cmd = LC1CMD_JMP;
       o.erase[1] = true;
     }},
   };
@@ -102,14 +102,9 @@ void optimize(lc1cenv &env) {
         ++oit;
         continue;
       }
-      decltype(jt)::const_iterator fnit;
-      {
-        string fname = (oit - 1)->cmd;
-        fname += oit->cmd;
-        fnit = jt.find(fname);
-        if(fnit == jt.end()) goto do_cont;
-        if(env.flag_verbose) cerr << "optimize " << fname << " @ " << (oit - stmts.begin()) << '\n';
-      }
+      auto fnit = jt.find(((oit - 1)->cmd << 8) + oit->cmd);
+      if(fnit == jt.end()) goto do_cont;
+      if(env.flag_verbose) cerr << "optimize " << lc1cmd2str((oit - 1)->cmd) << lc1cmd2str(oit->cmd) << " @ " << (oit - stmts.begin()) << '\n';
       od.erase[0] = od.erase[1] = false;
       fnit->second(od);
       if(od.erase[0] || od.erase[1]) {
@@ -144,9 +139,7 @@ struct zdo_basic_block {
     : entp_cnt(0), is_jmptrg(false), exip_norm(nullptr), exip_ovfl(nullptr), exip_sign(nullptr) { }
 
   ~zdo_basic_block() {
-    unref_exip(&exip_norm);
-    unref_exip(&exip_ovfl);
-    unref_exip(&exip_sign);
+    unref_all_exips();
   }
 
   bool unused() const noexcept
@@ -159,7 +152,7 @@ struct zdo_basic_block {
     body.shrink_to_fit();
   }
 
-  void unref_exip(zdo_basic_block **exipptr) {
+  static void unref_exip(zdo_basic_block **exipptr) {
     if(!exipptr || !(*exipptr)) return;
     auto &epcnt = (*exipptr)->entp_cnt;
     if(!epcnt) {
@@ -169,13 +162,18 @@ struct zdo_basic_block {
     }
     *exipptr = nullptr;
   }
+
+  void unref_all_exips() {
+    unref_exip(&exip_norm);
+    unref_exip(&exip_ovfl);
+    unref_exip(&exip_sign);
+  }
 };
 
 /* The optimize_deep phase is composed out of three sub-phases
    1. (init)    split the source code into basic blocks, compute use counts
    2. (run)     in a loop: optimize basic blocks and delete unused basic blocks
    3. (fini)    recompose the program from left-over basic blocks, overwrites env
-   NOTE: all commands are lower-case
  */
 
 class zdo_data {
@@ -217,12 +215,12 @@ class zdo_data {
       exc.erase(it);
     };
 
-    const unordered_map<string, function<void (const lc1stmt &)>> jt = {
+    const unordered_map<uint8_t, function<void (const lc1stmt &)>> jt = {
 #define ZDO_JTFN [&, this](const lc1stmt &i)
-      { "jmp", ZDO_JTFN { fn_jump_regexc(i, exc_jmp); }},
-      { "jpo", ZDO_JTFN { fn_jump_regexc(i, exc_jpo); }},
-      { "jps", ZDO_JTFN { fn_jump_regexc(i, exc_jps); }},
-      { LABEL_CMD, ZDO_JTFN {
+      { LC1CMD_JMP, ZDO_JTFN { fn_jump_regexc(i, exc_jmp); }},
+      { LC1CMD_JPS, ZDO_JTFN { fn_jump_regexc(i, exc_jps); }},
+      { LC1CMD_JPO, ZDO_JTFN { fn_jump_regexc(i, exc_jpo); }},
+      { LC1CMD_LABEL, ZDO_JTFN {
         if(!blocks.back().empty()) {
           auto &olbb = blocks.back();
           blocks.emplace_back();
@@ -231,7 +229,7 @@ class zdo_data {
         exc_dests[i.a_s].emplace_back(&blocks.back());
         blocks.back().entp_labels.emplace_back(i.a_s);
       }},
-      { "hlt", ZDO_JTFN {
+      { LC1CMD_HLT, ZDO_JTFN {
         blocks.back().exip_norm = 0;
         blocks.emplace_back();
       }},
@@ -271,7 +269,8 @@ class zdo_data {
     // resolve jumps
     for(const auto &i : exc_dests) {
       if(i.second.size() != 1 && flag_verbose)
-        cerr << "optimize_deep: ERROR: got redefinition of label '" << i.first << "'\n";
+        cerr << "optimize_deep: ERROR: got redefinition of label '" << i.first << "' (" << i.second.size() << " times)\n";
+      if(i.second.empty()) continue;
       zdo_basic_block *jmpdest = i.second.back();
       fn_jump_resolve(i.first, jmpdest, exc_jmp, &zdo_basic_block::exip_norm);
       fn_jump_resolve(i.first, jmpdest, exc_jpo, &zdo_basic_block::exip_ovfl);
@@ -350,7 +349,7 @@ class zdo_data {
 
       // create labels
       lc1stmt stmt;
-      strcpy(stmt.cmd, LABEL_CMD);
+      stmt.cmd = LC1CMD_LABEL;
       stmt.atyp = lc1atyp::LABEL;
       for(const auto &lbl : i.entp_labels) {
         // NOTE: don't move from lbl, as we need it to resolve jumps later
@@ -362,12 +361,12 @@ class zdo_data {
       // append commands
       stmts.insert(stmts.end(), i.body.begin(), i.body.end());
       if(i.exip_ovfl) {
-        strcpy(stmt.cmd, "jpo");
+        stmt.cmd = LC1CMD_JPO;
         stmt.a_s = i.exip_ovfl->entp_labels.front();
         stmts.emplace_back(move(stmt));
       }
       if(i.exip_sign) {
-        strcpy(stmt.cmd, "jps");
+        stmt.cmd = LC1CMD_JPS;
         stmt.a_s = i.exip_sign->entp_labels.front();
         stmts.emplace_back(move(stmt));
       }
@@ -375,19 +374,22 @@ class zdo_data {
       if(!i.exip_norm) {
         // if HLT is the last command, it's implicit
         if(i.is_jmptrg) {
-          strcpy(stmt.cmd, "hlt");
+          stmt.cmd = LC1CMD_HLT;
           stmt.atyp = lc1atyp::NONE;
           stmt.a_s = {};
           stmts.emplace_back(move(stmt));
         }
       } else if(next_it == blocks.end() || i.exip_norm != &(*next_it)) {
         // jump after this block (non-linear flow)
-        strcpy(stmt.cmd, "jmp");
+        stmt.cmd = LC1CMD_JMP;
         stmt.a_s = i.exip_norm->entp_labels.front();
         stmts.emplace_back(move(stmt));
       } else {
         // no jump needed
       }
+
+      // unref all exit points to prevent use-after-free
+      i.unref_all_exips();
     }
   }
 
@@ -397,7 +399,7 @@ class zdo_data {
 void optimize_deep(lc1cenv &env) {
   zdo_data dat;
   dat.do_init(env);
-  //dat.do_cleanup();
+  dat.do_cleanup();
   while(true) {
     const size_t bcnt = dat.get_block_count();
     dat.do_run();
@@ -409,34 +411,19 @@ void optimize_deep(lc1cenv &env) {
 
 // NOTE: optimize_idconsts is the latest optimize phase, which works
 //       on mostly resolved addresses to find raw byte constants in the asm-code
-//       for re-usage;
-//       all commands are upper-case
+//       for re-usage
 static void mark_idconst(const lc1cenv &env, labels_t &labels, const int value) {
-  static const vector<std::string> cmd2hi = {
-    "LDA", "LDB", "MOV", "MAB", "ADD", "SUB", "AND", "NOT",
-    "JMP", "JPS", "JPO", "CAL", "RET", "RRA", "RLA", "HLT"
-  };
-
   const uint8_t val_lo = value & 63, val_hi = value >> 6;
-  string needed_cmd;
-  try { needed_cmd = cmd2hi.at(val_hi); }
-  catch(...) { return; }
-  const bool cmd_has_arg = ([&needed_cmd] {
-    string cmd = needed_cmd;
-    str_lower(cmd);
-    return cmd2has_arg(cmd);
-  })();
-  if(!cmd_has_arg && val_lo) return;
+  const uint8_t needed_cmd = 0x10 + val_hi;
+  if(!cmd2has_arg(needed_cmd) && val_lo) return;
 
   auto &stmts = env.stmts;
   auto it = stmts.begin();
   size_t stcnt = 0;
   for(; it != stmts.end(); ++it) {
-    if(it->do_ignore)
-      continue;
-    if(!it->cmd || needed_cmd != it->cmd || it->atyp != lc1atyp::ABSOLUTE)
+    if(it->cmd != needed_cmd || it->atyp != lc1atyp::ABSOLUTE)
       goto inc_cont;
-    if(!cmd_has_arg || it->a_i == val_lo)
+    if(it->a_i == val_lo)
       break;
     inc_cont:
       ++stcnt;

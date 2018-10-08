@@ -1,4 +1,5 @@
 #pragma once
+#include <inttypes.h>
 #include <string.h>
 #include <string>
 #include <ostream>
@@ -10,12 +11,34 @@ enum class lc1atyp {
   INVALID, NONE, ABSOLUTE, RELATIVE, IDCONST, LABEL
 };
 
-#define LABEL_CMD "-L-"
-// strlen(cmd) = LC1CMD_LEN
-#define LC1CMD_LEN 3
+typedef uint8_t lc1cmd;
+
+// virtual commands
+#define LC1CMD_NONE  0x00
+#define LC1CMD_DEF   0x01
+#define LC1CMD_LABEL 0x02
+
+// real commands
+#define LC1CMD_LDA 0x10
+#define LC1CMD_LDB 0x11
+#define LC1CMD_MOV 0x12
+#define LC1CMD_MAB 0x13
+#define LC1CMD_ADD 0x14
+#define LC1CMD_SUB 0x15
+#define LC1CMD_AND 0x16
+#define LC1CMD_NOT 0x17
+
+#define LC1CMD_JMP 0x18
+#define LC1CMD_JPS 0x19
+#define LC1CMD_JPO 0x1a
+#define LC1CMD_CAL 0x1b
+#define LC1CMD_RET 0x1c
+#define LC1CMD_RRA 0x1d
+#define LC1CMD_RLA 0x1e
+#define LC1CMD_HLT 0x1f
 
 struct lc1stmt {
-  char cmd[4];
+  lc1cmd cmd;
 
   // argument
   lc1atyp atyp;
@@ -25,16 +48,16 @@ struct lc1stmt {
   // flags
   bool do_ignore;
 
-  lc1stmt(): atyp(lc1atyp::INVALID), a_i(0), do_ignore(false)
-    { memset(cmd, 0, 4); }
+  lc1stmt(): cmd(0), atyp(lc1atyp::INVALID), a_i(0), do_ignore(false)
+    { }
   lc1stmt(const lc1stmt &o) = default;
   lc1stmt(lc1stmt &&o) noexcept
-    : atyp(o.atyp), a_s(move(o.a_s)), a_i(o.a_i), do_ignore(o.do_ignore)
-    { memcpy(cmd, o.cmd, 4); }
+    : cmd(o.cmd), atyp(o.atyp), a_s(move(o.a_s)), a_i(o.a_i), do_ignore(o.do_ignore)
+    { }
 
   lc1stmt& operator=(const lc1stmt &o) = default;
   lc1stmt& operator=(lc1stmt &&o) noexcept {
-    memcpy(cmd, o.cmd, 4);
+    cmd  = o.cmd;
     atyp = o.atyp;
     a_s  = move(o.a_s);
     a_i  = o.a_i;

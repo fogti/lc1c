@@ -3,12 +3,13 @@
 #include <stddef.h>
 
 void str_trim(std::string &s);
-void str_lower(std::string &s) noexcept;
 
 void file_parse_error(const char *file, size_t lineno, const std::string &msg);
-bool cmd2has_arg(const std::string &command) noexcept;
-lc1atyp arg2atyp(const std::string &command, bool &defmode) noexcept;
+lc1atyp arg2atyp(const char *arg, bool &defmode) noexcept;
+lc1cmd  str2cmd(std::string command) noexcept;
+bool cmd2has_arg(const lc1cmd cmd) noexcept;
 
+auto lc1cmd2str(const lc1cmd cmd) noexcept -> const char *;
 auto lc1atyp2str(const lc1atyp lat) noexcept -> const char*;
 
 template<class Cont>
