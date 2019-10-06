@@ -1,0 +1,10 @@
+[package]
+name = "lc1c"
+version = "0.0.0"
+authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zserik/lc1c"
+
+[dependencies]
+clap = "~2.33.0"
