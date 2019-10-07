@@ -32,10 +32,8 @@ impl fmt::Display for Argument {
     }
 }
 
-pub struct ParseArgumentError(Option<std::num::ParseIntError>);
-
 impl str::FromStr for Argument {
-    type Err = ParseArgumentError;
+    type Err = std::num::ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use Argument::*;
@@ -46,12 +44,6 @@ impl str::FromStr for Argument {
             '$' => IdConst(s.split_at(1).1.parse()?),
             _ => Label(s.to_string()),
         })
-    }
-}
-
-impl From<std::num::ParseIntError> for ParseArgumentError {
-    fn from(error: std::num::ParseIntError) -> Self {
-        ParseArgumentError(Some(error))
     }
 }
 
@@ -116,7 +108,7 @@ impl StatementInvoc {
     }
 }
 
-static _CMD_DATA: &'static [Command] = &[
+static _CMD_DATA: &[Command] = &[
     Command {
         code: Some(0x0),
         mnemonic: "LDA",
@@ -234,37 +226,60 @@ static _CMD_DATA: &'static [Command] = &[
 ];
 
 impl<T: StatementInvocBackend> StatementInvocBase<T> {
-    fn map_or_fail<U, E, Fn, DFn, LFn>(
+    fn map_or_fail<U, E, Fn, DFn, LFn, EFn>(
         self,
         f: Fn,
         df: DFn,
         lf: LFn,
+        ef: EFn,
     ) -> Result<StatementInvocBase<U>, E>
     where
         U: StatementInvocBackend,
         Fn: FnOnce(T) -> Result<U, E>,
         DFn: FnOnce(T::DefCode) -> Result<U::DefCode, E>,
         LFn: FnOnce(T::Label) -> Result<U::Label, E>,
+        EFn: FnOnce() -> Result<(), E>,
     {
         use StatementInvocBase::*;
         Ok(match self {
             LDA(x) => LDA(f(x)?),
             LDB(x) => LDB(f(x)?),
             MOV(x) => MOV(f(x)?),
-            MAB => MAB,
-            ADD => ADD,
-            SUB => SUB,
-            AND => AND,
-            NOT => NOT,
+            MAB => {
+                ef()?;
+                MAB
+            }
+            ADD => {
+                ef()?;
+                ADD
+            }
+            SUB => {
+                ef()?;
+                SUB
+            }
+            AND => {
+                ef()?;
+                AND
+            }
+            NOT => {
+                ef()?;
+                NOT
+            }
 
             JMP(x) => JMP(f(x)?),
             JPS(x) => JPS(f(x)?),
             JPO(x) => JPO(f(x)?),
             CAL(x) => CAL(f(x)?),
-            RET => RET,
+            RET => {
+                ef()?;
+                RET
+            }
             RRA(x) => RRA(f(x)?),
             RLA(x) => RLA(f(x)?),
-            HLT => HLT,
+            HLT => {
+                ef()?;
+                HLT
+            }
 
             DEF(x) => DEF(df(x)?),
             Label(x) => Label(lf(x)?),
@@ -382,16 +397,6 @@ impl From<std::num::ParseIntError> for ParseStatementError {
     }
 }
 
-impl From<ParseArgumentError> for ParseStatementError {
-    fn from(error: ParseArgumentError) -> Self {
-        if let Some(ie) = error.0 {
-            ParseStatementError::Integer(ie)
-        } else {
-            ParseStatementError::InvalidArgument
-        }
-    }
-}
-
 struct ParserWoArg;
 
 impl StatementInvocBackend for ParserWoArg {
@@ -403,68 +408,60 @@ impl str::FromStr for StatementInvoc {
     type Err = ParseStatementError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        fn from_simple_str(s: &str) -> Option<StatementInvoc> {
-            use StatementInvocBase::*;
-            Some(match s {
+        use ParseStatementError::*;
+        use StatementInvocBase::*;
+
+        if s.len() < 2 {
+            Err(TooShort)
+        } else if s.ends_with(':') {
+            // got label
+            Ok(Label(s.split_at(s.len() - 1).0.to_string()))
+        } else {
+            let (cmd, arg) = {
+                let parts: Vec<&str> = s.split_whitespace().collect();
+                let arg = match parts.len() {
+                    0 => Err(TooShort),
+                    1 => Ok(None),
+                    2 => Ok(Some(parts[1])),
+                    n => Err(TooManyTokens(n)),
+                }?;
+                (parts[0], arg)
+            };
+            let arg_ok = || arg.ok_or(ArgumentNotFound);
+            Ok(match cmd.to_uppercase().as_str() {
+                "LDA" => LDA(ParserWoArg),
+                "LDB" => LDB(ParserWoArg),
+                "MOV" => MOV(ParserWoArg),
                 "MAB" => MAB,
                 "ADD" => ADD,
                 "SUB" => SUB,
                 "AND" => AND,
                 "NOT" => NOT,
+
+                "JMP" => JMP(ParserWoArg),
+                "JPS" => JPS(ParserWoArg),
+                "JPO" => JPO(ParserWoArg),
+                "CAL" => CAL(ParserWoArg),
                 "RET" => RET,
+                "RRA" => RRA(ParserWoArg),
+                "RLA" => RLA(ParserWoArg),
                 "HLT" => HLT,
-                _ => return None,
-            })
-        }
-        fn str_to_cmd_arg_tuple(s: &str) -> Result<(&str, Option<&str>), ParseStatementError> {
-            let parts: Vec<&str> = s.split_whitespace().collect();
-            match parts.len() {
-                0 => Err(TooShort),
-                1 => Ok((parts[0], None)),
-                2 => Ok((parts[0], Some(parts[1]))),
-                n => Err(TooManyTokens(n)),
-            }
-        }
 
-        if s.len() < 2 {
-            return Err(ParseStatementError::TooShort);
-        } else if s.ends_with(':') {
-            // got label
-            return Ok(StatementInvoc::Label(s.split_at(s.len() - 1).0.to_string()));
-        }
-
-        use ParseStatementError::*;
-        let (cmd, arg) = str_to_cmd_arg_tuple(s)?;
-        let cmd = cmd.to_uppercase();
-        let cmd = cmd.as_str();
-
-        if let Some(x) = from_simple_str(cmd) {
-            if arg.is_some() {
-                Err(UnexpectedArgument)
-            } else {
-                Ok(x)
-            }
-        } else if let Some(arg) = arg {
-            Ok(match cmd {
-                "DEF" => StatementInvocBase::DEF(ParserWoArg),
-                "LDA" => StatementInvocBase::LDA(ParserWoArg),
-                "LDB" => StatementInvocBase::LDB(ParserWoArg),
-                "MOV" => StatementInvocBase::MOV(ParserWoArg),
-                "JMP" => StatementInvocBase::JMP(ParserWoArg),
-                "JPS" => StatementInvocBase::JPS(ParserWoArg),
-                "JPO" => StatementInvocBase::JPO(ParserWoArg),
-                "CAL" => StatementInvocBase::CAL(ParserWoArg),
-                "RRA" => StatementInvocBase::RRA(ParserWoArg),
-                "RLA" => StatementInvocBase::RLA(ParserWoArg),
+                "DEF" => DEF(ParserWoArg),
                 _ => return Err(UnknownCommand),
             }
             .map_or_fail(
-                |_| arg.parse::<Argument>(),
-                |_| arg.parse::<u16>().map_err(|x| x.into()),
-                |x| Ok(x),
+                |_| Ok(arg_ok()?.parse::<Argument>()?),
+                |_| Ok(arg_ok()?.parse::<u16>()?),
+                Ok,
+                || {
+                    if arg.is_some() {
+                        Err(UnexpectedArgument)
+                    } else {
+                        Ok(())
+                    }
+                },
             )?)
-        } else {
-            Err(ArgumentNotFound)
         }
     }
 }
