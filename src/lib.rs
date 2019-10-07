@@ -14,34 +14,42 @@ impl LC1CUnit {
             let orig_i = i;
             // strip comments
             let i = i.split(';').next().unwrap();
-            let mut i = i.trim_start();
+            let i = i.trim_start();
             if i.is_empty() {
                 continue;
             }
-            // a statement starting with '-' is marked as non-optimizable
-            let optimizable = if i.starts_with('-') {
-                i = i.split_at(1).1;
-                false
-            } else {
-                true
-            };
-            let i = i.trim();
-            match i.parse::<statement::StatementInvoc>() {
-                Err(x) => {
-                    use colored::Colorize;
-                    eprintln!(
-                        "{}: {}",
-                        "LC1C ERROR".bright_red().bold(),
-                        format!("{}", x).bold()
-                    );
-                    eprintln!("    ╭─> {}:{}", src_name, n);
-                    eprintln!("    │");
-                    eprintln!("{: >3} ┴ {}", n, orig_i);
-                    eprintln!("");
-                    is_success = false;
-                }
-                Ok(x) => {
-                    ret.stmts.push(x.into_statement(optimizable));
+            let mut istk = vec![i];
+            while let Some(mut i) = istk.pop() {
+                // a statement starting with '-' is marked as non-optimizable
+                let optimizable = if i.starts_with('-') {
+                    i = i.split_at(1).1;
+                    false
+                } else {
+                    true
+                };
+                let i = i.trim();
+                match i.parse::<statement::StatementInvoc>() {
+                    Err(x) if x == statement::ParseStatementError::InlineLabel => {
+                        let (a, b) = i.split_at(i.find(':').unwrap() + 1);
+                        istk.push(a);
+                        istk.push(b);
+                    }
+                    Err(x) => {
+                        use colored::Colorize;
+                        eprintln!(
+                            "{}: {}",
+                            "LC1C ERROR".bright_red().bold(),
+                            format!("{}", x).bold()
+                        );
+                        eprintln!("    ╭─> {}:{}", src_name, n);
+                        eprintln!("    │");
+                        eprintln!("{: >3} ┴ {}", n, orig_i);
+                        eprintln!("");
+                        is_success = false;
+                    }
+                    Ok(x) => {
+                        ret.stmts.push(x.into_statement(optimizable));
+                    }
                 }
             }
         }

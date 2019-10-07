@@ -363,6 +363,7 @@ pub enum ParseStatementError {
     InvalidArgument,
     TooManyTokens(usize),
     UnknownCommand,
+    InlineLabel,
 
     Integer(std::num::ParseIntError),
 }
@@ -377,6 +378,7 @@ impl fmt::Display for ParseStatementError {
             InvalidArgument => write!(f, "argument is invalid"),
             TooManyTokens(n) => write!(f, "statement consists of too many (whitespace-separated) tokens (expected at most 2, got {})", n),
             UnknownCommand => write!(f, "got unknown command"),
+            InlineLabel => write!(f, "got forbidden inline label"),
             Integer(ref x) => write!(f, "parsing argument failed: {}", x),
         }
     }
@@ -423,7 +425,11 @@ impl str::FromStr for StatementInvoc {
                     0 => Err(TooShort),
                     1 => Ok(None),
                     2 => Ok(Some(parts[1])),
-                    n => Err(TooManyTokens(n)),
+                    n => Err(if parts[0].ends_with(':') {
+                        InlineLabel
+                    } else {
+                        TooManyTokens(n)
+                    }),
                 }?;
                 (parts[0], arg)
             };
@@ -448,7 +454,13 @@ impl str::FromStr for StatementInvoc {
                 "HLT" => HLT,
 
                 "DEF" => DEF(ParserWoArg),
-                _ => return Err(UnknownCommand),
+                _ => {
+                    return Err(if cmd.find(':').is_some() {
+                        InlineLabel
+                    } else {
+                        UnknownCommand
+                    })
+                }
             }
             .map_or_fail(
                 |_| Ok(arg_ok()?.parse::<Argument>()?),
