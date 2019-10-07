@@ -1,157 +1,23 @@
 use std::{collections::HashMap, fmt, str};
 
-pub trait ToStaticStr: Copy {
-    fn to_static_str(self) -> &'static str;
-    fn _display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_static_str())
-    }
-}
-
-macro_rules! impl_display_for_static_str {
-    ($struct:ident) => {
-        impl fmt::Display for $struct {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                ToStaticStr::_display(self, f)
-            }
-        }
-    };
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VirtCommand {
-    None,
-    Def,
-    Label,
-}
-
-impl ToStaticStr for VirtCommand {
-    fn to_static_str(self) -> &'static str {
-        match self {
-            VirtCommand::None => "NONE",
-            VirtCommand::Def => "DEF",
-            VirtCommand::Label => "LABEL",
-        }
-    }
-}
-
-impl_display_for_static_str!(VirtCommand);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RealCommand {
-    LDA = 0x0,
-    LDB = 0x1,
-    MOV = 0x2,
-    MAB = 0x3,
-    ADD = 0x4,
-    SUB = 0x5,
-    AND = 0x6,
-    NOT = 0x7,
-
-    JMP = 0x8,
-    JPS = 0x9,
-    JPO = 0xa,
-    CAL = 0xb,
-    RET = 0xc,
-    RRA = 0xd,
-    RLA = 0xe,
-    HLT = 0xf,
-}
-
-impl_display_for_static_str!(RealCommand);
-
-impl ToStaticStr for RealCommand {
-    fn to_static_str(self) -> &'static str {
-        use RealCommand::*;
-        match self {
-            LDA => "LDA",
-            LDB => "LDB",
-            MOV => "MOV",
-            MAB => "MAB",
-            ADD => "ADD",
-            SUB => "SUB",
-            AND => "AND",
-            NOT => "NOT",
-
-            JMP => "JMP",
-            JPS => "JPS",
-            JPO => "JPO",
-            CAL => "CAL",
-            RET => "RET",
-            RRA => "RRA",
-            RLA => "RLA",
-            HLT => "HLT",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Command {
-    V(VirtCommand),
-    R(RealCommand),
-}
-
-impl ToStaticStr for Command {
-    fn to_static_str(self) -> &'static str {
-        match self {
-            Command::V(x) => x.to_static_str(),
-            Command::R(x) => x.to_static_str(),
-        }
-    }
-}
-
-impl_display_for_static_str!(Command);
-
-impl Command {
-    fn has_arg(self) -> bool {
-        match self {
-            Command::V(x) => match x {
-                VirtCommand::None => false,
-                VirtCommand::Def => true,
-                VirtCommand::Label => true,
-            },
-            Command::R(x) => {
-                use RealCommand::*;
-                match x {
-                    LDA | LDB | MOV => true,
-                    JMP | JPS | JPO | CAL | RRA | RLA => true,
-                    _ => false,
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddrType {
-    Invalid,
-    None,
-    Absolute,
-    Relative,
-    IdConst,
-    Label,
-}
-
-impl ToStaticStr for AddrType {
-    fn to_static_str(self) -> &'static str {
-        match self {
-            AddrType::Invalid => "invalid",
-            AddrType::None => "none",
-            AddrType::Absolute => "absolute",
-            AddrType::Relative => "relative",
-            AddrType::IdConst => "ind.const",
-            AddrType::Label => "label",
-        }
-    }
-}
-
-impl_display_for_static_str!(AddrType);
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Argument {
     Absolute(u16),
     Relative(i16),
     IdConst(u16),
     Label(String),
+}
+
+impl Argument {
+    pub fn get_type(&self) -> (char, &'static str) {
+        use Argument::*;
+        match self {
+            Absolute(_) => ('@', "absolute"),
+            Relative(_) => ('.', "relative"),
+            IdConst(_) => ('$', "ind.const"),
+            Label(_) => (':', "label"),
+        }
+    }
 }
 
 impl fmt::Display for Argument {
@@ -215,49 +81,23 @@ pub enum StatementInvocBase<T> {
 
 pub type StatementInvoc = StatementInvocBase<Argument>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Statement {
     pub invoc: StatementInvoc,
     pub optimizable: bool,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Command {
+    code: Option<u8>,
+    mnemonic: &'static str,
+    is_real: bool,
+    has_arg: bool,
+}
+
 type Labels = HashMap<String, usize>;
 
 impl StatementInvoc {
-    pub fn arg(&self) -> Option<&Argument> {
-        use StatementInvocBase::*;
-        match self {
-            LDA(ref x) | LDB(ref x) | MOV(ref x) | JMP(ref x) | JPS(ref x) | JPO(ref x)
-            | CAL(ref x) | RRA(ref x) | RLA(ref x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn cmd2str(&self) -> &'static str {
-        use StatementInvocBase::*;
-        match self {
-            LDA(_) => "LDA",
-            LDB(_) => "LDB",
-            MOV(_) => "MOV",
-            MAB => "MAB",
-            ADD => "ADD",
-            SUB => "SUB",
-            AND => "AND",
-            NOT => "NOT",
-
-            JMP(_) => "JMP",
-            JPS(_) => "JPS",
-            JPO(_) => "JPO",
-            CAL(_) => "CAL",
-            RET => "RET",
-            RRA(_) => "RRA",
-            RLA(_) => "RLA",
-            HLT => "HLT",
-
-            DEF(_) => "DEF",
-            Label(_) => "LABEL",
-        }
-    }
-
     pub fn into_statement(self, optimizable: bool) -> Statement {
         Statement {
             invoc: self,
@@ -291,6 +131,62 @@ impl<T> StatementInvocBase<T> {
             DEF(x) => DEF(x),
             Label(x) => Label(x),
         })
+    }
+
+    pub fn arg(&self) -> Option<&T> {
+        use StatementInvocBase::*;
+        match self {
+            LDA(ref x) | LDB(ref x) | MOV(ref x) | JMP(ref x) | JPS(ref x) | JPO(ref x)
+            | CAL(ref x) | RRA(ref x) | RLA(ref x) => Some(x),
+            _ => None,
+        }
+    }
+
+    /// get_cmd -> (cmdcode, cmd2str, is_real, has_arg)
+    pub fn get_cmd(&self) -> Command {
+        use StatementInvocBase::*;
+        let ret = match self {
+            LDA(_) => Ok((0x0, "LDA", true)),
+            LDB(_) => Ok((0x1, "LDB", true)),
+            MOV(_) => Ok((0x2, "MOV", true)),
+            MAB => Ok((0x3, "MAB", false)),
+            ADD => Ok((0x4, "ADD", false)),
+            SUB => Ok((0x5, "SUB", false)),
+            AND => Ok((0x6, "AND", false)),
+            NOT => Ok((0x7, "NOT", false)),
+
+            JMP(_) => Ok((0x8, "JMP", true)),
+            JPS(_) => Ok((0x9, "JPS", true)),
+            JPO(_) => Ok((0xa, "JPO", true)),
+            CAL(_) => Ok((0xb, "CAL", true)),
+            RET => Ok((0xc, "RET", false)),
+            RRA(_) => Ok((0xd, "RRA", true)),
+            RLA(_) => Ok((0xe, "RLA", true)),
+            HLT => Ok((0xf, "HLT", false)),
+
+            DEF(_) => Err((Some(0x0), "DEF")),
+            Label(_) => Err((None, "LABEL")),
+        };
+        match ret {
+            Ok((code, mnemonic, has_arg)) => Command { code: Some(code), mnemonic, is_real: true, has_arg },
+            Err((code, mnemonic)) => Command { code, mnemonic, is_real: false, has_arg: true },
+        }
+    }
+
+    pub fn cmdcode(&self) -> Option<u8> {
+        self.get_cmd().code
+    }
+
+    pub fn cmd2str(&self) -> &'static str {
+        self.get_cmd().mnemonic
+    }
+
+    pub fn is_cmd_real(&self) -> bool {
+        self.get_cmd().is_real
+    }
+
+    pub fn has_arg(self) -> bool {
+        self.get_cmd().has_arg
     }
 }
 
