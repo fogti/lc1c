@@ -55,8 +55,13 @@ impl From<std::num::ParseIntError> for ParseArgumentError {
     }
 }
 
+pub trait StatementInvocBackend {
+    type DefCode;
+    type Label;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StatementInvocBase<T> {
+pub enum StatementInvocBase<T: StatementInvocBackend> {
     LDA(T),
     LDB(T),
     MOV(T),
@@ -75,8 +80,13 @@ pub enum StatementInvocBase<T> {
     RLA(T),
     HLT,
 
-    DEF(u16),
-    Label(String),
+    DEF(T::DefCode),
+    Label(T::Label),
+}
+
+impl StatementInvocBackend for Argument {
+    type DefCode = u16;
+    type Label = String;
 }
 
 pub type StatementInvoc = StatementInvocBase<Argument>;
@@ -106,8 +116,136 @@ impl StatementInvoc {
     }
 }
 
-impl<T> StatementInvocBase<T> {
-    fn map_or_fail<U, E, Fn: FnOnce(T) -> Result<U, E>>(self, f: Fn) -> Result<StatementInvocBase<U>, E> {
+static _CMD_DATA: &'static [Command] = &[
+    Command {
+        code: Some(0x0),
+        mnemonic: "LDA",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0x1),
+        mnemonic: "LDB",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0x2),
+        mnemonic: "MOV",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0x3),
+        mnemonic: "MAB",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x4),
+        mnemonic: "ADD",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x5),
+        mnemonic: "SUB",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x6),
+        mnemonic: "AND",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x7),
+        mnemonic: "NOT",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x8),
+        mnemonic: "JMP",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0x9),
+        mnemonic: "JPS",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0xa),
+        mnemonic: "JPO",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0xb),
+        mnemonic: "CAL",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0xc),
+        mnemonic: "RET",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0xd),
+        mnemonic: "RRA",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0xe),
+        mnemonic: "RLA",
+        is_real: true,
+        has_arg: true,
+    },
+    Command {
+        code: Some(0xf),
+        mnemonic: "HLT",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
+        code: Some(0x0),
+        mnemonic: "DEF",
+        is_real: false,
+        has_arg: true,
+    },
+    Command {
+        code: None,
+        mnemonic: "LABEL",
+        is_real: false,
+        has_arg: true,
+    },
+    Command {
+        code: None,
+        mnemonic: "-TERMINATOR-",
+        is_real: false,
+        has_arg: false,
+    },
+];
+
+impl<T: StatementInvocBackend> StatementInvocBase<T> {
+    fn map_or_fail<U, E, Fn, DFn, LFn>(
+        self,
+        f: Fn,
+        df: DFn,
+        lf: LFn,
+    ) -> Result<StatementInvocBase<U>, E>
+    where
+        U: StatementInvocBackend,
+        Fn: FnOnce(T) -> Result<U, E>,
+        DFn: FnOnce(T::DefCode) -> Result<U::DefCode, E>,
+        LFn: FnOnce(T::Label) -> Result<U::Label, E>,
+    {
         use StatementInvocBase::*;
         Ok(match self {
             LDA(x) => LDA(f(x)?),
@@ -128,8 +266,8 @@ impl<T> StatementInvocBase<T> {
             RLA(x) => RLA(f(x)?),
             HLT => HLT,
 
-            DEF(x) => DEF(x),
-            Label(x) => Label(x),
+            DEF(x) => DEF(df(x)?),
+            Label(x) => Label(lf(x)?),
         })
     }
 
@@ -146,31 +284,26 @@ impl<T> StatementInvocBase<T> {
     pub fn get_cmd(&self) -> Command {
         use StatementInvocBase::*;
         let ret = match self {
-            LDA(_) => Ok((0x0, "LDA", true)),
-            LDB(_) => Ok((0x1, "LDB", true)),
-            MOV(_) => Ok((0x2, "MOV", true)),
-            MAB => Ok((0x3, "MAB", false)),
-            ADD => Ok((0x4, "ADD", false)),
-            SUB => Ok((0x5, "SUB", false)),
-            AND => Ok((0x6, "AND", false)),
-            NOT => Ok((0x7, "NOT", false)),
-
-            JMP(_) => Ok((0x8, "JMP", true)),
-            JPS(_) => Ok((0x9, "JPS", true)),
-            JPO(_) => Ok((0xa, "JPO", true)),
-            CAL(_) => Ok((0xb, "CAL", true)),
-            RET => Ok((0xc, "RET", false)),
-            RRA(_) => Ok((0xd, "RRA", true)),
-            RLA(_) => Ok((0xe, "RLA", true)),
-            HLT => Ok((0xf, "HLT", false)),
-
-            DEF(_) => Err((Some(0x0), "DEF")),
-            Label(_) => Err((None, "LABEL")),
+            LDA(_) => 0x00,
+            LDB(_) => 0x01,
+            MOV(_) => 0x02,
+            MAB => 0x03,
+            ADD => 0x04,
+            SUB => 0x05,
+            AND => 0x06,
+            NOT => 0x07,
+            JMP(_) => 0x08,
+            JPS(_) => 0x09,
+            JPO(_) => 0x0a,
+            CAL(_) => 0x0b,
+            RET => 0x0c,
+            RRA(_) => 0x0d,
+            RLA(_) => 0x0e,
+            HLT => 0x0f,
+            DEF(_) => 0x10,
+            Label(_) => 0x11,
         };
-        match ret {
-            Ok((code, mnemonic, has_arg)) => Command { code: Some(code), mnemonic, is_real: true, has_arg },
-            Err((code, mnemonic)) => Command { code, mnemonic, is_real: false, has_arg: true },
-        }
+        _CMD_DATA[ret]
     }
 
     pub fn cmdcode(&self) -> Option<u8> {
@@ -259,6 +392,13 @@ impl From<ParseArgumentError> for ParseStatementError {
     }
 }
 
+struct ParserWoArg;
+
+impl StatementInvocBackend for ParserWoArg {
+    type DefCode = ParserWoArg;
+    type Label = String;
+}
+
 impl str::FromStr for StatementInvoc {
     type Err = ParseStatementError;
 
@@ -306,18 +446,23 @@ impl str::FromStr for StatementInvoc {
             }
         } else if let Some(arg) = arg {
             Ok(match cmd {
-                "DEF" => StatementInvocBase::DEF(arg.parse::<u16>()?),
-                "LDA" => StatementInvocBase::LDA(()),
-                "LDB" => StatementInvocBase::LDB(()),
-                "MOV" => StatementInvocBase::MOV(()),
-                "JMP" => StatementInvocBase::JMP(()),
-                "JPS" => StatementInvocBase::JPS(()),
-                "JPO" => StatementInvocBase::JPO(()),
-                "CAL" => StatementInvocBase::CAL(()),
-                "RRA" => StatementInvocBase::RRA(()),
-                "RLA" => StatementInvocBase::RLA(()),
+                "DEF" => StatementInvocBase::DEF(ParserWoArg),
+                "LDA" => StatementInvocBase::LDA(ParserWoArg),
+                "LDB" => StatementInvocBase::LDB(ParserWoArg),
+                "MOV" => StatementInvocBase::MOV(ParserWoArg),
+                "JMP" => StatementInvocBase::JMP(ParserWoArg),
+                "JPS" => StatementInvocBase::JPS(ParserWoArg),
+                "JPO" => StatementInvocBase::JPO(ParserWoArg),
+                "CAL" => StatementInvocBase::CAL(ParserWoArg),
+                "RRA" => StatementInvocBase::RRA(ParserWoArg),
+                "RLA" => StatementInvocBase::RLA(ParserWoArg),
                 _ => return Err(UnknownCommand),
-            }.map_or_fail(|_| arg.parse::<Argument>())?)
+            }
+            .map_or_fail(
+                |_| arg.parse::<Argument>(),
+                |_| arg.parse::<u16>().map_err(|x| x.into()),
+                |x| Ok(x),
+            )?)
         } else {
             Err(ArgumentNotFound)
         }
