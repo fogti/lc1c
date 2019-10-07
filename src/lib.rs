@@ -43,7 +43,7 @@ impl LC1CUnit {
                         );
                         eprintln!("    ╭─> {}:{}", src_name, n);
                         eprintln!("    │");
-                        eprintln!("{: >3} ┴ {}", n, orig_i);
+                        eprintln!("{} ┴ {}", format!("{: >3}", n).blue().bold(), orig_i);
                         eprintln!("");
                         is_success = false;
                     }
