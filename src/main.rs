@@ -43,11 +43,9 @@ fn main() {
         .map_err(|()| std::process::exit(1))
         .unwrap();
 
-    println!("{:#?}", parsed);
-
     {
         let ofe = format!("file {}", output_file);
-        let mut asm_out = codegen::LC1Asm::new(output_file).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
+        let mut asm_out = codegen::LC1Obj::new(output_file).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
         asm_out.codegen(&parsed).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
     }
 }
