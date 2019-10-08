@@ -1,3 +1,7 @@
+#![feature(never_type)]
+
+pub mod codegen;
+pub use codegen::CodeGen;
 pub mod statement;
 pub use statement::Statement;
 
@@ -62,12 +66,7 @@ impl LC1CUnit {
 
     pub fn parse_from_file(file_name: &str) -> Result<LC1CUnit, ()> {
         let fh = readfilez::read_from_file(std::fs::File::open(file_name)).map_err(|x| {
-            use colored::Colorize;
-            eprintln!(
-                "{}: {}",
-                "LC1C IO ERROR".bright_red().bold(),
-                format!("file {}: {}", file_name, x).bold()
-            );
+            print_io_error(x, &format!("file {}", file_name));
         })?;
         let fh = std::str::from_utf8(&fh).map_err(|x| {
             use colored::Colorize;
@@ -80,4 +79,18 @@ impl LC1CUnit {
         })?;
         LC1CUnit::parse(fh, file_name)
     }
+}
+
+fn print_io_error(err: std::io::Error, origin: &str) {
+    use colored::Colorize;
+    eprintln!(
+        "{}: {}",
+        "LC1C IO ERROR".bright_red().bold(),
+        format!("{}: {}", origin, err).bold()
+    );
+}
+
+pub fn bailout_with_io_error(err: std::io::Error, origin: &str) -> ! {
+    print_io_error(err, origin);
+    std::process::exit(1);
 }

@@ -1,3 +1,5 @@
+pub use lc1c::*;
+
 fn main() {
     use clap::Arg;
     let matches = clap::App::new("lc1c")
@@ -14,6 +16,7 @@ fn main() {
             Arg::with_name("output")
                 .short("o")
                 .takes_value(true)
+                .required(true)
                 .help("specify a compilation output filename")
         )
         .arg(
@@ -35,9 +38,16 @@ fn main() {
         .get_matches();
 
     let input_file = matches.value_of("INPUT").unwrap();
-    let parsed = lc1c::LC1CUnit::parse_from_file(input_file)
+    let output_file = matches.value_of("output").unwrap();
+    let parsed = LC1CUnit::parse_from_file(input_file)
         .map_err(|()| std::process::exit(1))
         .unwrap();
 
     println!("{:#?}", parsed);
+
+    {
+        let ofe = format!("file {}", output_file);
+        let mut asm_out = codegen::LC1Asm::new(output_file).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
+        asm_out.codegen(&parsed).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
+    }
 }
