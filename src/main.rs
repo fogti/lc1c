@@ -39,13 +39,29 @@ fn main() {
 
     let input_file = matches.value_of("INPUT").unwrap();
     let output_file = matches.value_of("output").unwrap();
-    let parsed = LC1CUnit::parse_from_file(input_file)
+    let mut parsed = LC1CUnit::parse_from_file(input_file)
         .map_err(|()| std::process::exit(1))
         .unwrap();
 
+    match matches.value_of("optimize") {
+        None | Some("0") => {}
+        Some("D") => {}
+        Some("1") => {
+            lc1c::optimize_flat(&mut parsed.stmts, lc1c::optimize::flatdrv::lc1)
+        }
+        Some(x) => {
+            panic!("LC1C: invalid '-O' (optimize) argument: {}", x);
+        }
+    }
+
     {
         let ofe = format!("file {}", output_file);
-        let mut asm_out = codegen::LC1Obj::new(output_file).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
-        asm_out.codegen(&parsed).map_err(|x| bailout_with_io_error(x, &ofe)).unwrap();
+        let mut asm_out = codegen::LC1Obj::new(output_file)
+            .map_err(|x| bailout_with_io_error(x, &ofe))
+            .unwrap();
+        asm_out
+            .codegen(&parsed)
+            .map_err(|x| bailout_with_io_error(x, &ofe))
+            .unwrap();
     }
 }

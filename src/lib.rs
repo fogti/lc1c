@@ -1,13 +1,18 @@
 #![feature(never_type)]
 
 pub mod codegen;
-pub use codegen::CodeGen;
+pub mod optimize;
 pub mod statement;
-pub use statement::Statement;
+
+pub use crate::{
+codegen::CodeGen,
+optimize::optimize_flat,
+statement::Statement,
+};
 
 #[derive(Clone, Debug)]
 pub struct LC1CUnit {
-    stmts: Vec<Statement>,
+    pub stmts: Vec<Statement>,
 }
 
 impl LC1CUnit {

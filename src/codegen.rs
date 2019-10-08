@@ -1,5 +1,8 @@
 use crate::LC1CUnit;
-use std::{fs, io::{self, Write}};
+use std::{
+    fs,
+    io::{self, Write},
+};
 
 pub trait CodeGen {
     fn codegen(&mut self, u: &LC1CUnit) -> io::Result<()>;
