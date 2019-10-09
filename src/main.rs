@@ -43,6 +43,9 @@ fn main() {
         .map_err(|()| std::process::exit(1))
         .unwrap();
 
+    // 1. resolve Relative's --> Label's
+
+    // 2. optimize
     match matches.value_of("optimize") {
         None | Some("0") => {}
         Some("D") => {}
@@ -53,6 +56,10 @@ fn main() {
             panic!("LC1C: invalid '-O' (optimize) argument: {}", x);
         }
     }
+
+    // 3. resolve Label's
+    // 4. if -march=lc1: optimize IdConst's
+    // 5. resolve IdConst's
 
     {
         let ofe = format!("file {}", output_file);
