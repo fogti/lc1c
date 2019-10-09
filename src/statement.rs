@@ -3,7 +3,6 @@ use std::{collections::HashMap, fmt, str};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Argument {
     Absolute(u16),
-    Relative(i16),
     IdConst(u16),
     Label(String),
 }
@@ -13,7 +12,6 @@ impl Argument {
         use Argument::*;
         match self {
             Absolute(_) => ('@', "absolute"),
-            Relative(_) => ('.', "relative"),
             IdConst(_) => ('$', "ind.const"),
             Label(_) => (':', "label"),
         }
@@ -25,7 +23,6 @@ impl fmt::Display for Argument {
         use Argument::*;
         match self {
             Absolute(x) => write!(f, "@{}", x),
-            Relative(x) => write!(f, ".{}", x),
             IdConst(x) => write!(f, "${}", x),
             Label(ref x) => write!(f, "{}", x),
         }
@@ -40,7 +37,6 @@ impl str::FromStr for Argument {
         // match on first char
         Ok(match s.chars().next().unwrap() {
             '@' => Absolute(s.split_at(1).1.parse()?),
-            '.' => Relative(s.split_at(1).1.parse()?),
             '$' => IdConst(s.split_at(1).1.parse()?),
             _ => Label(s.to_string()),
         })

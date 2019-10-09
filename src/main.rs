@@ -45,8 +45,6 @@ fn main() {
 
     let march_lc1 = lc1c::march::LC1D;
 
-    // 1. resolve Relative's --> Label's
-
     // 2. optimize
     match matches.value_of("optimize") {
         None | Some("0") => {}
