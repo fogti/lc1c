@@ -88,9 +88,9 @@ pub struct Statement {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Command {
-    mnemonic: &'static str,
-    is_real: bool,
-    has_arg: bool,
+    pub mnemonic: &'static str,
+    pub is_real: bool,
+    pub has_arg: bool,
 }
 
 type Labels = HashMap<String, usize>;
@@ -103,109 +103,6 @@ impl StatementInvoc {
         }
     }
 }
-
-static _CMD_DATA: &[Command] = &[
-    Command {
-        mnemonic: "LDA",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "LDB",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "MOV",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "MAB",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "ADD",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "SUB",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "AND",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "NOT",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "JMP",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "JPS",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "JPO",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "CAL",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "RET",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "RRA",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "RLA",
-        is_real: true,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "HLT",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "NOP",
-        is_real: true,
-        has_arg: false,
-    },
-    Command {
-        mnemonic: "DEF",
-        is_real: false,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "LABEL",
-        is_real: false,
-        has_arg: true,
-    },
-    Command {
-        mnemonic: "-TERMINATOR-",
-        is_real: false,
-        has_arg: false,
-    },
-];
 
 impl<T: StatementInvocBackend> StatementInvocBase<T> {
     fn map_or_fail<U, E, Fn, DFn, LFn, EFn>(
@@ -283,29 +180,40 @@ impl<T: StatementInvocBackend> StatementInvocBase<T> {
 
     /// get_cmd -> (cmdcode, cmd2str, is_real, has_arg)
     pub fn get_cmd(&self) -> Command {
+        macro_rules! cmd {
+            (($cmd:ident), $is_real:expr) => { cmd!(@ $cmd, $is_real, true) };
+            ($cmd:ident, $is_real:expr)   => { cmd!(@ $cmd, $is_real, false) };
+            (@ $cmd:ident, $is_real:expr, $has_arg:expr) => {
+                Command {
+                    mnemonic: stringify!($cmd),
+                    is_real: $is_real,
+                    has_arg: $has_arg,
+                }
+            };
+            (@ ($cmd:ident)) => { $cmd(_) };
+            (@ $cmd:ident) => { $cmd };
+        }
+        macro_rules! cmds {
+            ({$($tt_real:tt),+,}, {$($tt_virt:tt),+,}) => {
+                match self {
+                    $(cmd!(@ $tt_real) => cmd!($tt_real, true)),+,
+                    $(cmd!(@ $tt_virt) => cmd!($tt_virt, false)),+,
+                }
+            }
+        }
         use StatementInvocBase::*;
-        let ret = match self {
-            LDA(_) => 0x00,
-            LDB(_) => 0x01,
-            MOV(_) => 0x02,
-            MAB => 0x03,
-            ADD => 0x04,
-            SUB => 0x05,
-            AND => 0x06,
-            NOT => 0x07,
-            JMP(_) => 0x08,
-            JPS(_) => 0x09,
-            JPO(_) => 0x0a,
-            CAL(_) => 0x0b,
-            RET => 0x0c,
-            RRA(_) => 0x0d,
-            RLA(_) => 0x0e,
-            HLT => 0x0f,
-            NOP => 0x10,
-            DEF(_) => 0x11,
-            Label(_) => 0x12,
-        };
-        _CMD_DATA[ret]
+        cmds!(
+            {
+                (LDA), (LDB), (MOV), MAB,
+                ADD, SUB, AND, NOT,
+                (JMP), (JPS), (JPO), (CAL),
+                RET, (RRA), (RLA),
+                HLT, NOP,
+            },
+            {
+                (DEF), (Label),
+            }
+        )
     }
 
     pub fn cmd2str(&self) -> &'static str {
