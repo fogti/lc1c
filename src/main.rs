@@ -1,4 +1,4 @@
-pub use lc1c::*;
+use lc1c::prelude::*;
 
 fn main() {
     use clap::Arg;
@@ -43,15 +43,15 @@ fn main() {
         .map_err(|()| std::process::exit(1))
         .unwrap();
 
+    let march_lc1 = lc1c::march::LC1D;
+
     // 1. resolve Relative's --> Label's
 
     // 2. optimize
     match matches.value_of("optimize") {
         None | Some("0") => {}
         Some("D") => {}
-        Some("1") => {
-            lc1c::optimize_flat(&mut parsed.stmts, lc1c::optimize::flatdrv::lc1)
-        }
+        Some("1") => march_lc1.optimize_flat(&mut parsed.stmts),
         Some(x) => {
             panic!("LC1C: invalid '-O' (optimize) argument: {}", x);
         }
@@ -63,12 +63,12 @@ fn main() {
 
     {
         let ofe = format!("file {}", output_file);
-        let mut asm_out = codegen::LC1Obj::new(output_file)
-            .map_err(|x| bailout_with_io_error(x, &ofe))
+        let mut asm_out = lc1c::codegen::LC1Obj::new(output_file)
+            .map_err(|x| lc1c::bailout_with_io_error(x, &ofe))
             .unwrap();
         asm_out
             .codegen(&parsed)
-            .map_err(|x| bailout_with_io_error(x, &ofe))
+            .map_err(|x| lc1c::bailout_with_io_error(x, &ofe))
             .unwrap();
     }
 }

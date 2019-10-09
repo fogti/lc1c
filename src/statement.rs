@@ -72,6 +72,7 @@ pub enum StatementInvocBase<T: StatementInvocBackend> {
     RLA(T),
     HLT,
 
+    NOP,
     DEF(T::DefCode),
     Label(T::Label),
 }
@@ -91,7 +92,6 @@ pub struct Statement {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Command {
-    code: Option<u8>,
     mnemonic: &'static str,
     is_real: bool,
     has_arg: bool,
@@ -110,115 +110,101 @@ impl StatementInvoc {
 
 static _CMD_DATA: &[Command] = &[
     Command {
-        code: Some(0x0),
         mnemonic: "LDA",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0x1),
         mnemonic: "LDB",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0x2),
         mnemonic: "MOV",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0x3),
         mnemonic: "MAB",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x4),
         mnemonic: "ADD",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x5),
         mnemonic: "SUB",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x6),
         mnemonic: "AND",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x7),
         mnemonic: "NOT",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x8),
         mnemonic: "JMP",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0x9),
         mnemonic: "JPS",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0xa),
         mnemonic: "JPO",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0xb),
         mnemonic: "CAL",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0xc),
         mnemonic: "RET",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0xd),
         mnemonic: "RRA",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0xe),
         mnemonic: "RLA",
         is_real: true,
         has_arg: true,
     },
     Command {
-        code: Some(0xf),
         mnemonic: "HLT",
         is_real: true,
         has_arg: false,
     },
     Command {
-        code: Some(0x0),
+        mnemonic: "NOP",
+        is_real: true,
+        has_arg: false,
+    },
+    Command {
         mnemonic: "DEF",
         is_real: false,
         has_arg: true,
     },
     Command {
-        code: None,
         mnemonic: "LABEL",
         is_real: false,
         has_arg: true,
     },
     Command {
-        code: None,
         mnemonic: "-TERMINATOR-",
         is_real: false,
         has_arg: false,
@@ -280,6 +266,10 @@ impl<T: StatementInvocBackend> StatementInvocBase<T> {
                 ef()?;
                 HLT
             }
+            NOP => {
+                ef()?;
+                NOP
+            }
 
             DEF(x) => DEF(df(x)?),
             Label(x) => Label(lf(x)?),
@@ -315,14 +305,11 @@ impl<T: StatementInvocBackend> StatementInvocBase<T> {
             RRA(_) => 0x0d,
             RLA(_) => 0x0e,
             HLT => 0x0f,
-            DEF(_) => 0x10,
-            Label(_) => 0x11,
+            NOP => 0x10,
+            DEF(_) => 0x11,
+            Label(_) => 0x12,
         };
         _CMD_DATA[ret]
-    }
-
-    pub fn cmdcode(&self) -> Option<u8> {
-        self.get_cmd().code
     }
 
     pub fn cmd2str(&self) -> &'static str {
@@ -452,6 +439,7 @@ impl str::FromStr for StatementInvoc {
                 "RRA" => RRA(ParserWoArg),
                 "RLA" => RLA(ParserWoArg),
                 "HLT" => HLT,
+                "NOP" => NOP,
 
                 "DEF" => DEF(ParserWoArg),
                 _ => {

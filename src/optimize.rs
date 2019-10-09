@@ -76,56 +76,35 @@ pub mod flatdrv {
     use super::*;
     pub(crate) fn pre(invoc: (&StInvoc, &StInvoc)) -> FlatOptimizerRpl {
         use crate::statement::StatementInvocBase::*;
-        FlatOptimizerRpl::with_n(if invoc.0.cmdcode() == invoc.1.cmdcode() {
-            match invoc.0 {
-                // opposite ops
-                &NOT => 0,
+        FlatOptimizerRpl::with_n(match invoc {
+            // opposite ops
+            (&NOT, &NOT) | (&ADD, &SUB) | (&SUB, &ADD) => 0,
+            (&RRA(ref r), &RLA(ref l)) | (&RLA(ref l), &RRA(ref r)) if r == l => 0,
 
-                // direct overwrite
-                &LDA(_) | &LDB(_) => 2,
+            // direct overwrite
+            (&LDA(_), &LDA(_)) | (&LDB(_), &LDB(_)) => 2,
 
-                // no-ops
-                &MAB | &AND | &JMP(_) | &JPS(_) | &JPO(_) | &RET | &HLT => 1,
+            // no-ops
+            (&AND, &AND)
+            | (&MAB, &MAB)
+            | (&JMP(_), &JMP(_))
+            | (&JMP(_), &JPS(_))
+            | (&JMP(_), &JPO(_))
+            | (&JPS(_), &JPS(_))
+            | (&JPO(_), &JPO(_))
+            | (&RET, &CAL(_))
+            | (&RET, &RET)
+            | (&RET, &JMP(_))
+            | (&HLT, &JMP(_))
+            | (&HLT, &RET)
+            | (&HLT, &HLT) => 1,
 
-                _ => 3,
-            }
-        } else {
-            match invoc {
-                // opposite ops
-                (&ADD, &SUB) | (&SUB, &ADD) => 0,
-                (&RRA(ref r), &RLA(ref l)) | (&RLA(ref l), &RRA(ref r)) if r == l => 0,
-
-                // no-ops
-                (&JMP(_), &JPS(_))
-                | (&JMP(_), &JPO(_))
-                | (&JPS(_), &JPS(_))
-                | (&JPO(_), &JPO(_))
-                | (&RET, &CAL(_))
-                | (&RET, &JMP(_))
-                | (&HLT, &JMP(_))
-                | (&HLT, &RET) => 1,
-
-                _ => 3,
-            }
+            _ => 3,
         })
     }
 
     /// this is a dummy optimizer
     pub fn generic(_: (&StInvoc, &StInvoc)) -> FlatOptimizerRpl {
         return FlatOptimizerRpl::Both;
-    }
-
-    pub fn lc1(invoc: (&StInvoc, &StInvoc)) -> FlatOptimizerRpl {
-        use crate::statement::StatementInvocBase::*;
-        FlatOptimizerRpl::with_n(match invoc {
-            // direct overwrite
-            (&NOT, &LDA(_))
-            | (&ADD, &LDA(_))
-            | (&SUB, &LDA(_))
-            | (&MAB, &LDB(_))
-            | (&LDB(_), &MAB) => 2,
-
-            _ => 3,
-        })
     }
 }
