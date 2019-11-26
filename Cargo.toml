@@ -7,6 +7,6 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/zserik/lc1c"
 
 [dependencies]
-clap = "~2.33.0"
-colored = "1.8.0"
-readfilez = "0.1.3"
+clap = "2.33.0"
+colored = "1.9.0"
+readfilez = "0.2.0"
