@@ -26,7 +26,7 @@ impl LC1Asm {
 impl CodeGen for LC1Asm {
     fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
         for i in u.stmts.iter() {
-            if let &crate::statement::StatementInvocBase::Label(_) = &i.invoc {
+            if let crate::statement::StatementInvocBase::Label(_) = &i.invoc {
                 // do nothing
             } else {
                 write!(&mut self.dstf, "  ")?;
@@ -53,7 +53,7 @@ impl LC1Obj {
 impl CodeGen for LC1Obj {
     fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
         for (n, i) in u.stmts.iter().enumerate() {
-            if let &crate::statement::StatementInvocBase::Label(_) = &i.invoc {
+            if let crate::statement::StatementInvocBase::Label(_) = &i.invoc {
                 // do nothing
             } else {
                 write!(&mut self.dstf, "{} ", n)?;

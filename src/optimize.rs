@@ -47,9 +47,10 @@ pub fn optimize_flat(
             if drv_ret == FlatOptimizerRpl::Both {
                 drv_ret = drvf(invoc);
             }
-            let nn = match &drv_ret {
-                &Both => Some(inxt),
-                _ => it.next().map(|x| &x[1]),
+            let nn = if drv_ret == Both {
+                Some(inxt)
+            } else {
+                it.next().map(|x| &x[1])
             };
 
             match drv_ret {
@@ -105,6 +106,6 @@ pub mod flatdrv {
 
     /// this is a dummy optimizer
     pub fn generic(_: (&StInvoc, &StInvoc)) -> FlatOptimizerRpl {
-        return FlatOptimizerRpl::Both;
+        FlatOptimizerRpl::Both
     }
 }

@@ -178,6 +178,15 @@ impl<T: StatementInvocBackend> StatementInvocBase<T> {
         }
     }
 
+    pub fn arg_mut(&mut self) -> Option<&mut T> {
+        use StatementInvocBase::*;
+        match self {
+            LDA(ref mut x) | LDB(ref mut x) | MOV(ref mut x) | JMP(ref mut x) | JPS(ref mut x)
+            | JPO(ref mut x) | CAL(ref mut x) | RRA(ref mut x) | RLA(ref mut x) => Some(x),
+            _ => None,
+        }
+    }
+
     /// get_cmd -> (cmdcode, cmd2str, is_real, has_arg)
     pub fn get_cmd(&self) -> Command {
         macro_rules! cmd {
