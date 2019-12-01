@@ -1,23 +1,21 @@
-#![feature(never_type)]
-
 pub mod codegen;
 pub mod march;
 pub mod optimize;
 pub mod statement;
 
 pub mod prelude {
-    pub use crate::{codegen::CodeGen, march::MArch, LC1CUnit};
+    pub use crate::{codegen::CodeGen, march::MArch};
 }
 
 #[derive(Clone, Debug)]
-pub struct LC1CUnit {
+pub struct CompileUnit {
     pub stmts: Vec<statement::Statement>,
 }
 
-impl LC1CUnit {
-    pub fn parse(s: &str, src_name: &str) -> Result<LC1CUnit, ()> {
+impl CompileUnit {
+    pub fn parse(s: &str, src_name: &str) -> Result<CompileUnit, ()> {
         let mut is_success = true;
-        let mut ret = LC1CUnit { stmts: vec![] };
+        let mut ret = CompileUnit { stmts: vec![] };
         for (n, i) in s.lines().enumerate() {
             let orig_i = i;
             // strip comments
@@ -68,7 +66,7 @@ impl LC1CUnit {
         }
     }
 
-    pub fn parse_from_file(file_name: &str) -> Result<LC1CUnit, ()> {
+    pub fn parse_from_file(file_name: &str) -> Result<CompileUnit, ()> {
         let fh = readfilez::read_from_file(std::fs::File::open(file_name)).map_err(|x| {
             print_io_error(x, &format!("file {}", file_name));
         })?;
@@ -81,7 +79,7 @@ impl LC1CUnit {
             );
             eprintln!("    ──> {}", x);
         })?;
-        LC1CUnit::parse(fh, file_name)
+        CompileUnit::parse(fh, file_name)
     }
 }
 

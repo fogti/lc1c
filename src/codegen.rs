@@ -1,11 +1,11 @@
-use crate::LC1CUnit;
+use crate::CompileUnit;
 use std::{
     fs,
     io::{self, Write},
 };
 
 pub trait CodeGen {
-    fn codegen(&mut self, u: &LC1CUnit) -> io::Result<()>;
+    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()>;
 }
 
 /** LC1Asm is an output filter which outputs `_.LC1` code.
@@ -24,7 +24,7 @@ impl LC1Asm {
 }
 
 impl CodeGen for LC1Asm {
-    fn codegen(&mut self, u: &LC1CUnit) -> io::Result<()> {
+    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
         for i in u.stmts.iter() {
             if let &crate::statement::StatementInvocBase::Label(_) = &i.invoc {
                 // do nothing
@@ -51,7 +51,7 @@ impl LC1Obj {
 }
 
 impl CodeGen for LC1Obj {
-    fn codegen(&mut self, u: &LC1CUnit) -> io::Result<()> {
+    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
         for (n, i) in u.stmts.iter().enumerate() {
             if let &crate::statement::StatementInvocBase::Label(_) = &i.invoc {
                 // do nothing

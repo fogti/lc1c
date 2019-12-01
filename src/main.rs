@@ -1,4 +1,4 @@
-use lc1c::prelude::*;
+use lc1c::{prelude::*, CompileUnit as LC1CUnit};
 
 fn main() {
     use clap::Arg;
