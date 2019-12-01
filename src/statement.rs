@@ -1,10 +1,11 @@
-use std::{collections::HashMap, fmt, str};
+use std::{fmt, str};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Argument {
     Absolute(u16),
     IdConst(u16),
     Label(String),
+    Placeholder,
 }
 
 impl Argument {
@@ -14,7 +15,12 @@ impl Argument {
             Absolute(_) => ('@', "absolute"),
             IdConst(_) => ('$', "ind.const"),
             Label(_) => (':', "label"),
+            Placeholder => ('_', "place.holder"),
         }
+    }
+
+    pub fn take(&mut self) -> Self {
+        std::mem::replace(self, Argument::Placeholder)
     }
 }
 
@@ -25,6 +31,7 @@ impl fmt::Display for Argument {
             Absolute(x) => write!(f, "@{}", x),
             IdConst(x) => write!(f, "${}", x),
             Label(ref x) => write!(f, "{}", x),
+            Placeholder => write!(f, "@_"),
         }
     }
 }
@@ -92,8 +99,6 @@ pub struct Command {
     pub is_real: bool,
     pub has_arg: bool,
 }
-
-type Labels = HashMap<String, usize>;
 
 impl StatementInvoc {
     pub fn into_statement(self, optimizable: bool) -> Statement {
@@ -235,6 +240,10 @@ impl<T: StatementInvocBackend> StatementInvocBase<T> {
 
     pub fn has_arg(self) -> bool {
         self.get_cmd().has_arg
+    }
+
+    pub fn take(&mut self) -> Self {
+        std::mem::replace(self, StatementInvocBase::NOP)
     }
 }
 

@@ -81,6 +81,41 @@ impl CompileUnit {
         })?;
         CompileUnit::parse(fh, file_name)
     }
+
+    pub fn resolve_labels(&mut self) {
+        let mut lbls = std::collections::HashMap::<String, usize>::new();
+
+        // resolve first round
+        for (n, mut i) in self.stmts.iter_mut().enumerate() {
+            if let Some(ref mut arg) = i.arg_mut() {
+                if let statement::Argument::Label(ref x) = &arg {
+                    if let Some(absidx) = lbls.get(x) {
+                        *arg = statement::Argument::Absolute(absidx);
+                    }
+                }
+            } else if let statement::StatementInvocBase::Label(ref mut x) = i {
+                lbls.insert(x.to_string(), n);
+                *i = statement::StatementInvocBase::NOP;
+            }
+        }
+
+        // resolve second round
+        for i in self.stmts.iter_mut() {
+            if let Some(ref mut arg) = i.arg_mut() {
+                *arg = match arg.take() {
+                    statement::Argument::Label(x) => {
+                        if let Some(absidx) = lbls.get(&x) {
+                            *arg = statement::Argument::Absolute(absidx);
+                        } else {
+                            eprintln!("LC1C: use of undefined label: {}", x);
+                            std::process::exit(1);
+                        }
+                    },
+                    arg_ => arg_,
+                };
+            }
+        }
+    }
 }
 
 fn print_io_error(err: std::io::Error, origin: &str) {
