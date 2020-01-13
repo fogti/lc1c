@@ -83,36 +83,39 @@ impl CompileUnit {
     }
 
     pub fn resolve_labels(&mut self) {
+        use std::convert::TryInto;
         let mut lbls = std::collections::HashMap::<String, usize>::new();
 
         // resolve first round
-        for (n, mut i) in self.stmts.iter_mut().enumerate() {
-            if let Some(ref mut arg) = i.arg_mut() {
-                if let statement::Argument::Label(ref x) = &arg {
+        for (n, i) in self.stmts.iter_mut().enumerate() {
+            let ii = &mut i.invoc;
+            if let Some(ref mut arg) = ii.arg_mut() {
+                if let statement::Argument::Label(ref x) = arg {
                     if let Some(absidx) = lbls.get(x) {
-                        *arg = statement::Argument::Absolute(absidx);
+                        **arg = statement::Argument::Absolute(
+                            (*absidx).try_into().expect("label index out-of-bounds"),
+                        );
                     }
                 }
-            } else if let statement::StatementInvocBase::Label(ref mut x) = i {
+            } else if let statement::StatementInvocBase::Label(ref mut x) = ii {
                 lbls.insert(x.to_string(), n);
-                *i = statement::StatementInvocBase::NOP;
+                *ii = statement::StatementInvocBase::NOP;
             }
         }
 
         // resolve second round
         for i in self.stmts.iter_mut() {
-            if let Some(ref mut arg) = i.arg_mut() {
-                *arg = match arg.take() {
-                    statement::Argument::Label(x) => {
-                        if let Some(absidx) = lbls.get(&x) {
-                            *arg = statement::Argument::Absolute(absidx);
-                        } else {
-                            eprintln!("LC1C: use of undefined label: {}", x);
-                            std::process::exit(1);
-                        }
-                    },
-                    arg_ => arg_,
-                };
+            if let Some(ref mut arg) = i.invoc.arg_mut() {
+                if let statement::Argument::Label(ref x) = arg {
+                    if let Some(absidx) = lbls.get(x) {
+                        **arg = statement::Argument::Absolute(
+                            (*absidx).try_into().expect("label index out-of-bounds"),
+                        )
+                    } else {
+                        eprintln!("LC1C: use of undefined label: {}", x);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
     }
