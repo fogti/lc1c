@@ -1,4 +1,5 @@
 use std::{fmt, str};
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Argument {
@@ -264,48 +265,25 @@ impl fmt::Display for StatementInvoc {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ParseStatementError {
+    #[error("statement is invalid because it's too short")]
     TooShort,
+    #[error("expected no argument, found one")]
     UnexpectedArgument,
+    #[error("expected one argument, found none")]
     ArgumentNotFound,
+    #[error("argument is invalid")]
     InvalidArgument,
+    #[error("statement consists of too many (whitespace-separated) tokens (expected at most 2, got {0})")]
     TooManyTokens(usize),
+    #[error("got unknown command")]
     UnknownCommand,
+    #[error("got forbidden inline label")]
     InlineLabel,
 
-    Integer(std::num::ParseIntError),
-}
-
-impl fmt::Display for ParseStatementError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use ParseStatementError::*;
-        match self {
-            TooShort => write!(f, "statement is invalid because it's too short"),
-            UnexpectedArgument => write!(f, "expected no argument, found one"),
-            ArgumentNotFound => write!(f, "expected one argument, found none"),
-            InvalidArgument => write!(f, "argument is invalid"),
-            TooManyTokens(n) => write!(f, "statement consists of too many (whitespace-separated) tokens (expected at most 2, got {})", n),
-            UnknownCommand => write!(f, "got unknown command"),
-            InlineLabel => write!(f, "got forbidden inline label"),
-            Integer(ref x) => write!(f, "parsing argument failed: {}", x),
-        }
-    }
-}
-
-impl std::error::Error for ParseStatementError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ParseStatementError::Integer(ref x) => Some(x),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::num::ParseIntError> for ParseStatementError {
-    fn from(error: std::num::ParseIntError) -> Self {
-        ParseStatementError::Integer(error)
-    }
+    #[error("parsing argument failed: {0}")]
+    Integer(#[from] std::num::ParseIntError),
 }
 
 struct ParserWoArg;
