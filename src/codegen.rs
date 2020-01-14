@@ -1,64 +1,56 @@
 use crate::CompileUnit;
-use std::{
-    fs,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 pub trait CodeGen {
-    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()>;
+    fn codegen(&self, u: &CompileUnit, f: &mut dyn io::Write) -> io::Result<()>;
+
+    fn new() -> Self
+    where
+        Self: Default,
+    {
+        std::default::Default::default()
+    }
 }
 
 /** LC1Asm is an output filter which outputs `_.LC1` code.
  * It strips dont-optimize markers from source code.
  **/
-pub struct LC1Asm {
-    dstf: fs::File,
-}
-
-impl LC1Asm {
-    pub fn new(dstf_name: impl AsRef<std::path::Path>) -> io::Result<Self> {
-        Ok(Self {
-            dstf: fs::File::create(dstf_name)?,
-        })
-    }
-}
+#[derive(Clone, Copy, Default)]
+pub struct LC1Asm;
 
 impl CodeGen for LC1Asm {
-    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
+    fn codegen(&self, u: &CompileUnit, f: &mut dyn io::Write) -> io::Result<()> {
         for i in u.stmts.iter() {
             if let crate::statement::StatementInvocBase::Label(_) = &i.invoc {
                 // do nothing
             } else {
-                write!(&mut self.dstf, "  ")?;
+                write!(f, "  ")?;
             }
-            writeln!(&mut self.dstf, "{}", i.invoc)?;
+            writeln!(f, "{}", i.invoc)?;
         }
         Ok(())
     }
 }
 
 /// LC1Obj is an output filter which outputs `_.LC1O` code.
-pub struct LC1Obj {
-    dstf: fs::File,
-}
-
-impl LC1Obj {
-    pub fn new(dstf_name: impl AsRef<std::path::Path>) -> io::Result<Self> {
-        Ok(Self {
-            dstf: fs::File::create(dstf_name)?,
-        })
-    }
-}
+#[derive(Clone, Copy, Default)]
+pub struct LC1Obj;
 
 impl CodeGen for LC1Obj {
-    fn codegen(&mut self, u: &CompileUnit) -> io::Result<()> {
-        for (n, i) in u.stmts.iter().enumerate() {
-            if let crate::statement::StatementInvocBase::Label(_) = &i.invoc {
-                // do nothing
-            } else {
-                write!(&mut self.dstf, "{} ", n)?;
-            }
-            writeln!(&mut self.dstf, "{}", i.invoc)?;
+    fn codegen(&self, u: &CompileUnit, f: &mut dyn io::Write) -> io::Result<()> {
+        for (n, i) in u
+            .stmts
+            .iter()
+            .filter(|i| {
+                if let crate::statement::StatementInvocBase::Label(_) = &i.invoc {
+                    false
+                } else {
+                    true
+                }
+            })
+            .enumerate()
+        {
+            writeln!(f, "{} {}", n, i.invoc)?;
         }
         Ok(())
     }

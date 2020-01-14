@@ -60,13 +60,12 @@ fn main() {
     // 5. resolve IdConst's
 
     {
-        let ofe = format!("file {}", output_file);
-        let mut asm_out = lc1c::codegen::LC1Obj::new(output_file)
-            .map_err(|x| lc1c::bailout_with_io_error(x, &ofe))
-            .unwrap();
-        asm_out
-            .codegen(&parsed)
-            .map_err(|x| lc1c::bailout_with_io_error(x, &ofe))
+        let eh =
+            |x: std::io::Error| lc1c::bailout_with_io_error(x, &format!("file {}", output_file));
+        let mut outfh = std::fs::File::create(output_file).map_err(eh).unwrap();
+        lc1c::codegen::LC1Obj::default()
+            .codegen(&parsed, &mut outfh)
+            .map_err(eh)
             .unwrap();
     }
 }
