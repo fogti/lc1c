@@ -27,11 +27,8 @@ pub fn optimize_flat(
     stmts: &mut Vec<Statement>,
     drvf: fn(invoc: (&StInvoc, &StInvoc)) -> FlatOptimizerRpl,
 ) {
-    loop {
+    while stmts.len() > 1 {
         let olen = stmts.len();
-        if olen <= 1 {
-            break;
-        }
         let old_stmts = std::mem::replace(stmts, Vec::with_capacity(olen));
         let mut it = old_stmts[..].windows(2).peekable();
 
