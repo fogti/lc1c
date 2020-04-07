@@ -39,3 +39,9 @@ build/
 *.out
 *.app
 /zxtw
+
+
+#Added by cargo
+
+/target
+Cargo.lock

@@ -1,0 +1,7 @@
+[package]
+name = "lc1c"
+version = "0.0.0"
+authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
+edition = "2018"
+
+[dependencies]
