@@ -23,6 +23,25 @@ fn read_asm_from_file(fname: String) -> Result<Vec<stmt::Statement>, (Arc<str>, 
     Ok(stmts)
 }
 
+fn print_module(module: &block::Module) {
+    println!("module ::");
+    for (n, i) in module.bbs().iter().enumerate() {
+        print!("BB({}): ", n);
+        let labels: Vec<_> = module.labels_of_bb(n).collect();
+        if !labels.is_empty() {
+            let mut labels = labels.into_iter();
+            print!("/* {}", labels.next().unwrap());
+            for i in labels {
+                print!(", {}", i);
+            }
+            print!(" */ ");
+        }
+        println!("{}", i);
+    }
+    println!("\tlabels: {:?}", module.labels());
+    println!("unused BBs: {:?}", module.unused_bbs());
+}
+
 fn main() {
     for arg in std::env::args().skip(1) {
         println!("process file :: {}", arg);
@@ -35,28 +54,16 @@ fn main() {
             }
         };
 
-        println!("stmts: {:?}", stmts);
+        println!("stmts: {:?}\n... convert into basic blocks ...", stmts);
 
-        println!("... convert into basic blocks ...");
+        let mut module = block::Module::new(stmts).expect("module parsing failed");
 
-        let module = block::Module::new(stmts).expect("module parsing failed");
+        print_module(&module);
 
-        println!("module ::");
-        for (n, i) in module.bbs().iter().enumerate() {
-            print!("BB({}): ", n);
-            let labels: Vec<_> = module.labels_of_bb(n).collect();
-            if !labels.is_empty() {
-                let mut labels = labels.into_iter();
-                print!("/* {}", labels.next().unwrap());
-                for i in labels {
-                    print!(", {}", i);
-                }
-                print!(" */ ");
-            }
-            println!("{}", i);
-        }
-        println!("\tlabels: {:?}", module.labels());
+        println!("\n... run one optimization ...");
 
-        println!("unused BBs: {:?}", module.unused_bbs());
+        module.optimize_once();
+
+        print_module(&module);
     }
 }

@@ -15,12 +15,9 @@ pub fn resolve_labels(
     *stmts = take(stmts)
         .into_iter()
         .filter_map(|mut x| {
-            match &mut x.cmd {
-                Command::Label(ref mut l) => {
-                    labels.insert(take(l), stcnt);
-                    return None;
-                }
-                _ => {}
+            if let Command::Label(ref mut l) = &mut x.cmd {
+                labels.insert(take(l), stcnt);
+                return None;
             }
             stcnt += 1;
             Some(x)
@@ -29,19 +26,15 @@ pub fn resolve_labels(
 
     // resolve labels
     for x in stmts.iter_mut() {
-        match &mut x.cmd {
-            Command::Wa(cmd, ref mut arg) => {
-                if let Argument::Label(ref mut l) = arg {
-                    if let Some(y) = labels.get(&*l) {
-                        *arg = Argument::Absolute(
-                            (*y).try_into().expect("unable to convert label value"),
-                        );
-                    } else {
-                        return Err(ResolveLabelError(*cmd, take(l)));
-                    }
+        if let Command::Wa(cmd, ref mut arg) = &mut x.cmd {
+            if let Argument::Label(ref mut l) = arg {
+                if let Some(y) = labels.get(&*l) {
+                    *arg =
+                        Argument::Absolute((*y).try_into().expect("unable to convert label value"));
+                } else {
+                    return Err(ResolveLabelError(*cmd, take(l)));
                 }
             }
-            _ => {}
         }
     }
 
@@ -174,7 +167,7 @@ impl<B: fmt::Display> fmt::Display for RawBasicBlock<B> {
         }
         writeln!(f)?;
         for i in self.stmts.iter() {
-            writeln!(f, "\t{}", i)?;
+            writeln!(f, "{}", i)?;
         }
         if let Some(x) = self.condjmp.as_ref() {
             writeln!(f, "  condjmp: if {} -> {}", CmdWithArg::from(x.0), x.1)?;
@@ -322,7 +315,15 @@ impl Module {
         Ok(Module { bbs, labels })
     }
 
-    fn labels_in_use<'a>(bbs: &'a [BasicBlock]) -> impl Iterator<Item = Cow<'a, str>> {
+    pub fn bbs(&self) -> &[BasicBlock] {
+        &self.bbs[..]
+    }
+
+    pub fn labels(&self) -> &HashMap<String, usize> {
+        &self.labels
+    }
+
+    fn labels_in_use(bbs: &[BasicBlock]) -> impl Iterator<Item = Cow<'_, str>> {
         bbs.iter()
             .flat_map(BasicBlock::linked_bb_ids)
             .filter_map(|i| match i {
@@ -341,19 +342,19 @@ impl Module {
         })
     }
 
-    pub fn remove_bbs(&mut self, bbids: BTreeSet<usize>) -> bool {
-        let mut ret = true;
+    pub fn mangle_bbs(&mut self, trm: HashMap<usize, Option<usize>>) {
+        let rem_bbids: BTreeSet<_> = trm.iter().map(|(&k, _)| k).collect();
         let mangle_bbid = |id: &mut usize| {
-            let curid = *id;
-            *id = curid - bbids.iter().take_while(|twi| **twi < curid).count();
+            let curid = if let Some(Some(x)) = trm.get(id).copied() {
+                x
+            } else {
+                *id
+            };
+            *id = curid - rem_bbids.iter().take_while(|twi| **twi < curid).count();
         };
-        let mut trt_bbid = |jty: Option<&mut JumpTarget<usize>>| {
+        let trt_bbid = |jty: Option<&mut JumpTarget<usize>>| {
             if let Some(JumpTarget::BasicBlock(ref mut bbid)) = jty {
-                if bbids.contains(bbid) {
-                    ret = false;
-                } else {
-                    mangle_bbid(bbid);
-                }
+                mangle_bbid(bbid);
             }
         };
         let new_bbs: Vec<BasicBlock> = self
@@ -362,7 +363,7 @@ impl Module {
             .into_iter()
             .enumerate()
             .filter_map(|(n, mut i)| {
-                if bbids.contains(&n) {
+                if rem_bbids.contains(&n) {
                     None
                 } else {
                     trt_bbid(i.condjmp.as_mut().map(|i| &mut i.1));
@@ -371,21 +372,15 @@ impl Module {
                 }
             })
             .collect();
-        std::mem::drop(trt_bbid);
-        if ret {
-            let liu: BTreeSet<Cow<str>> = Self::labels_in_use(&new_bbs).collect();
-            self.labels.retain(|k, v| {
-                if !liu.contains(k.as_str()) || bbids.contains(v) {
-                    return false;
-                }
-                mangle_bbid(v);
-                true
-            });
-            self.bbs = new_bbs;
+        let liu: BTreeSet<Cow<str>> = Self::labels_in_use(&new_bbs).collect();
+        self.labels.retain(|k, v| {
+            if !liu.contains(k.as_str()) || rem_bbids.contains(v) {
+                return false;
+            }
+            mangle_bbid(v);
             true
-        } else {
-            false
-        }
+        });
+        self.bbs = new_bbs;
     }
 
     pub fn unused_bbs(&self) -> BTreeSet<usize> {
@@ -402,14 +397,10 @@ impl Module {
                 .flat_map(|i| bbs.get(i).map(|bb| (i, bb)))
                 .flat_map(|(i, bb)| {
                     bb.linked_bb_ids()
-                        .filter_map(|j| match j {
-                            BbRef::Id(id) => Some(id),
+                        .map(|j| match j {
+                            BbRef::Id(id) => id,
                             BbRef::Label(l) => {
-                                let x = labels.get(l.as_ref()).copied();
-                                if x.is_none() {
-                                    eprintln!("Module::unused_bbs: got dangling label: {}", l);
-                                }
-                                x
+                                labels.get(l.as_ref()).copied().expect("got dangling label")
                             }
                         })
                         .chain(std::iter::once(i))
@@ -421,15 +412,34 @@ impl Module {
             }
             old_cnt = used.len();
         }
-        let allbbs: BTreeSet<usize> = (0..self.bbs.len()).into_iter().collect();
-        allbbs.difference(&used).cloned().collect()
+        let allbbs: BTreeSet<usize> = (0..self.bbs.len()).collect();
+        allbbs.difference(&used).copied().collect()
     }
 
-    pub fn bbs(&self) -> &[BasicBlock] {
-        &self.bbs[..]
-    }
+    pub fn optimize_once(&mut self) {
+        let trm = self
+            .bbs
+            .iter()
+            .enumerate()
+            // merge unlabeled BBs if possible (no conditional jumps)
+            .filter_map(|(n, i)| {
+                if i.is_empty() {
+                    Some((
+                        n,
+                        match i.next.as_ref() {
+                            None => None,
+                            Some(JumpTarget::BasicBlock(b)) => Some(*b),
+                            Some(_) => return None,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            })
+            // mark unused BBs
+            .chain(self.unused_bbs().into_iter().map(|i| (i, None)))
+            .collect();
 
-    pub fn labels(&self) -> &HashMap<String, usize> {
-        &self.labels
+        self.mangle_bbs(trm);
     }
 }

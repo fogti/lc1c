@@ -212,7 +212,7 @@ impl Statement {
         } else if let [x_cmd] = &xths[..] {
             (x_cmd, "")
         } else {
-            return Err(StatementParseError(loc.clone()));
+            return Err(StatementParseError(loc));
         };
         std::mem::drop(xths);
 
