@@ -64,5 +64,20 @@ fn main() {
         module.optimize();
 
         print_module(&module);
+
+        println!("\n... finish ...");
+
+        let mut stmts = module.finish();
+
+        for i in &stmts {
+            println!("\t{}", i);
+        }
+
+        println!("\n... resolve labels + idconsts ...");
+        resolve::resolve_labels(&mut stmts).expect("label resolving failed");
+        resolve::resolve_idconsts(&mut stmts);
+        for (n, i) in stmts.into_iter().map(|stmt| stmt.cmd).enumerate() {
+            println!("{}{:#}", n, i);
+        }
     }
 }

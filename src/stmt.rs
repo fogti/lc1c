@@ -164,17 +164,23 @@ impl fmt::Display for Location {
 
 #[derive(Clone, Debug)]
 pub struct Statement {
-    pub loc: Location,
+    pub loc: Option<Location>,
     pub cmd: Command,
     pub do_ignore: bool,
 }
 
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.do_ignore {
+        if f.alternate() && self.do_ignore {
             write!(f, "*")?;
         }
-        write!(f, "{}\t; {}", self.cmd, self.loc)
+        write!(f, "{}", self.cmd)?;
+        if f.alternate() {
+            if let Some(loc) = self.loc.as_ref() {
+                write!(f, "\t; {}", loc)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -195,7 +201,7 @@ impl Statement {
             let label = &s[..colon];
             s = s[colon + 1..].trim_start();
             ret.push(Statement {
-                loc: loc.clone(),
+                loc: Some(loc.clone()),
                 cmd: Command::Label(label.to_string()),
                 do_ignore: false,
             });
@@ -249,7 +255,7 @@ impl Statement {
             )
         };
         ret.push(Statement {
-            loc,
+            loc: Some(loc),
             cmd,
             do_ignore,
         });

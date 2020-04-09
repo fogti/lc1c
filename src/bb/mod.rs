@@ -152,7 +152,7 @@ impl<B: fmt::Display> fmt::Display for RawBasicBlock<B> {
         }
         writeln!(f)?;
         for i in self.stmts.iter() {
-            writeln!(f, "{}", i)?;
+            writeln!(f, "{:#}", i)?;
         }
         if let Some(x) = self.condjmp.as_ref() {
             writeln!(f, "  condjmp: if {} -> {}", CmdWithArg::from(x.0), x.1)?;
@@ -208,23 +208,23 @@ impl Module {
                 Command::Label(l) => {
                     pushbb!();
                     if last_bb.begin_loc.is_none() {
-                        last_bb.begin_loc = Some(loc);
+                        last_bb.begin_loc = loc;
                     }
                     labels.insert(l, bbs.len());
                 }
                 Command::Na(CmdNoArg::Ret) => {
                     last_bb.next = UcJumpTarget::Return;
-                    last_bb.endjmp_loc = Some(loc);
+                    last_bb.endjmp_loc = loc;
                     bbs.push(take(&mut last_bb));
                 }
                 Command::Na(CmdNoArg::Hlt) => {
                     last_bb.next = UcJumpTarget::Halt;
-                    last_bb.endjmp_loc = Some(loc);
+                    last_bb.endjmp_loc = loc;
                     bbs.push(take(&mut last_bb));
                 }
                 Command::Wa(CmdWithArg::Jmp, arg) => {
                     last_bb.next = wraptrg(JumpTarget::new(arg).map_err(ModuleParseError)?).into();
-                    last_bb.endjmp_loc = Some(loc);
+                    last_bb.endjmp_loc = loc;
                     bbs.push(take(&mut last_bb));
                 }
                 Command::Wa(CmdWithArg::Jps, arg) => {
@@ -232,7 +232,7 @@ impl Module {
                         CondJumpCond::Sign,
                         wraptrg(JumpTarget::new(arg).map_err(ModuleParseError)?),
                     ));
-                    last_bb.endjmp_loc = Some(loc);
+                    last_bb.endjmp_loc = loc;
                     pushbb!();
                 }
                 Command::Wa(CmdWithArg::Jpo, arg) => {
@@ -240,7 +240,7 @@ impl Module {
                         CondJumpCond::Overflow,
                         wraptrg(JumpTarget::new(arg).map_err(ModuleParseError)?),
                     ));
-                    last_bb.endjmp_loc = Some(loc);
+                    last_bb.endjmp_loc = loc;
                     pushbb!();
                 }
                 cmd => {
@@ -309,6 +309,75 @@ impl Module {
         Ok(Module { bbs, labels })
     }
 
+    pub fn finish(self) -> Vec<Statement> {
+        let Module { bbs, labels } = self;
+        let mut ret = Vec::new();
+
+        for (bbid, mut bb) in bbs.into_iter().enumerate() {
+            let mut cur_labels = Self::labels_of_bb_(&labels, bbid);
+            ret.push(Statement {
+                cmd: Command::Label(
+                    cur_labels
+                        .next()
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| format!("_L{}", bbid)),
+                ),
+                loc: bb.begin_loc.clone(),
+                do_ignore: false,
+            });
+            for i in cur_labels {
+                ret.push(Statement {
+                    cmd: Command::Label(i.to_string()),
+                    loc: None,
+                    do_ignore: false,
+                });
+            }
+            ret.append(&mut bb.stmts);
+            if let Some((cjc, cjt)) = bb.condjmp {
+                ret.push(Statement {
+                    cmd: Command::Wa(
+                        cjc.into(),
+                        match cjt {
+                            JumpTarget::BasicBlock(cjt_bbid) => Argument::Label(
+                                Self::labels_of_bb_(&labels, cjt_bbid)
+                                    .next()
+                                    .map(|i| i.to_string())
+                                    .unwrap_or_else(|| format!("_L{}", cjt_bbid)),
+                            ),
+                            JumpTarget::Absolute(a) => Argument::Absolute(a),
+                        },
+                    ),
+                    loc: bb.endjmp_loc.clone(),
+                    do_ignore: false,
+                })
+            }
+            if bb.next == UcJumpTarget::BasicBlock(bbid + 1) {
+                continue;
+            }
+            ret.push(Statement {
+                cmd: match bb.next {
+                    UcJumpTarget::Return => Command::Na(CmdNoArg::Ret),
+                    UcJumpTarget::Halt => Command::Na(CmdNoArg::Hlt),
+                    UcJumpTarget::Absolute(a) => {
+                        Command::Wa(CmdWithArg::Jmp, Argument::Absolute(a))
+                    }
+                    UcJumpTarget::BasicBlock(jt_bbid) => Command::Wa(
+                        CmdWithArg::Jmp,
+                        Argument::Label(
+                            Self::labels_of_bb_(&labels, jt_bbid)
+                                .next()
+                                .map(|i| i.to_string())
+                                .unwrap_or_else(|| format!("_L{}", jt_bbid)),
+                        ),
+                    ),
+                },
+                loc: bb.endjmp_loc.clone(),
+                do_ignore: false,
+            })
+        }
+        ret
+    }
+
     pub fn bbs(&self) -> &[BasicBlock] {
         &self.bbs[..]
     }
@@ -326,14 +395,21 @@ impl Module {
             })
     }
 
-    pub fn labels_of_bb(&self, bbid: usize) -> impl Iterator<Item = &str> {
-        self.labels.iter().filter_map(move |x| {
+    fn labels_of_bb_<'a>(
+        labels: &'a HashMap<String, usize>,
+        bbid: usize,
+    ) -> impl Iterator<Item = &'a str> {
+        labels.iter().filter_map(move |x| {
             if *x.1 == bbid {
                 Some(x.0.as_str())
             } else {
                 None
             }
         })
+    }
+
+    pub fn labels_of_bb(&self, bbid: usize) -> impl Iterator<Item = &str> {
+        Self::labels_of_bb_(&self.labels, bbid)
     }
 
     pub fn mangle_bbs(&mut self, trm: HashMap<usize, Option<usize>>) {
@@ -364,8 +440,12 @@ impl Module {
             })
             .collect();
         let liu: BTreeSet<Cow<str>> = Self::labels_in_use(&new_bbs).collect();
+        let mut l4bseen = BTreeSet::new();
         self.labels.retain(|k, v| {
-            if !liu.contains(k.as_str()) || rem_bbids.contains(v) {
+            if rem_bbids.contains(v) {
+                return false;
+            }
+            if !liu.contains(k.as_str()) && !l4bseen.insert(*v) {
                 return false;
             }
             mangle_bbid(v);

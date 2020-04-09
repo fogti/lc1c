@@ -5,3 +5,4 @@ authors = ["Erik Zscheile <zseri.devel@ytrizja.de>"]
 edition = "2018"
 
 [dependencies]
+bimap = "0.4"
