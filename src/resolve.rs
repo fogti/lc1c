@@ -66,8 +66,16 @@ pub fn resolve_idconsts(stmts: &mut Vec<Statement>) {
     iclbls.sort();
     for (pos, idc) in iclbls.into_iter() {
         if pos != stmts.len() {
-            eprintln!("lc1c-resolve-idconsts: position mismatch (expected = {}, got = {})", pos, stmts.len());
+            eprintln!(
+                "lc1c-resolve-idconsts: position mismatch (expected = {}, got = {})",
+                pos,
+                stmts.len()
+            );
         }
-        stmts.push(Statement { cmd: Command::Def(Argument::Absolute(idc)), loc: None, do_ignore: false });
+        stmts.push(Statement {
+            cmd: Command::Def(Argument::Absolute(idc)),
+            loc: None,
+            do_ignore: false,
+        });
     }
 }
