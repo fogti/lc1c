@@ -1,103 +1,9 @@
+mod utils;
+
+use crate::bb::utils::{jumptrg_to_bbid, BbRef, FlexBB, JumpTarget, UcJumpTarget};
 use crate::stmt::{Argument, CmdNoArg, CmdWithArg, Command, CondJumpCond, Statement};
 use std::collections::{BTreeSet, HashMap};
-use std::{borrow::Cow, convert::TryInto, fmt, mem::take};
-
-#[derive(Clone, Debug)]
-pub struct ResolveLabelError(pub CmdWithArg, pub String);
-
-pub fn resolve_labels(
-    stmts: &mut Vec<Statement>,
-) -> Result<HashMap<String, u32>, ResolveLabelError> {
-    // generate map of labels
-    let mut labels = HashMap::new();
-    let mut stcnt: u32 = 0;
-
-    *stmts = take(stmts)
-        .into_iter()
-        .filter_map(|mut x| {
-            if let Command::Label(ref mut l) = &mut x.cmd {
-                labels.insert(take(l), stcnt);
-                return None;
-            }
-            stcnt += 1;
-            Some(x)
-        })
-        .collect();
-
-    // resolve labels
-    for x in stmts.iter_mut() {
-        if let Command::Wa(cmd, ref mut arg) = &mut x.cmd {
-            if let Argument::Label(ref mut l) = arg {
-                if let Some(y) = labels.get(&*l) {
-                    *arg =
-                        Argument::Absolute((*y).try_into().expect("unable to convert label value"));
-                } else {
-                    return Err(ResolveLabelError(*cmd, take(l)));
-                }
-            }
-        }
-    }
-
-    Ok(labels)
-}
-
-#[derive(Clone, Copy, Debug)]
-enum JumpTarget<BbId> {
-    BasicBlock(BbId),
-    Absolute(i32),
-}
-
-#[derive(Clone, Debug)]
-enum BbRef<'a> {
-    Label(Cow<'a, str>),
-    Id(usize),
-}
-
-type FlexBB = BbRef<'static>;
-
-impl<T> JumpTarget<T> {
-    fn map<U>(self, f: impl FnOnce(T) -> U) -> JumpTarget<U> {
-        self.try_map(|x| Ok::<U, ()>(f(x))).unwrap()
-    }
-
-    fn try_map<U, E>(self, f: impl FnOnce(T) -> Result<U, E>) -> Result<JumpTarget<U>, E> {
-        Ok(match self {
-            JumpTarget::Absolute(a) => JumpTarget::Absolute(a),
-            JumpTarget::BasicBlock(bb) => JumpTarget::BasicBlock(f(bb)?),
-        })
-    }
-}
-
-impl<T: fmt::Display> fmt::Display for JumpTarget<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            JumpTarget::Absolute(a) => write!(f, "@{}", a),
-            JumpTarget::BasicBlock(b) => write!(f, "bb:{}", b),
-        }
-    }
-}
-
-impl JumpTarget<String> {
-    fn new(arg: Argument) -> Result<Self, Argument> {
-        Ok(match arg {
-            Argument::Label(l) => JumpTarget::BasicBlock(l),
-            Argument::Absolute(a) => JumpTarget::Absolute(a),
-            arg => return Err(arg),
-        })
-    }
-}
-
-impl From<String> for FlexBB {
-    fn from(x: String) -> Self {
-        FlexBB::Label(x.into())
-    }
-}
-
-impl From<usize> for FlexBB {
-    fn from(x: usize) -> Self {
-        FlexBB::Id(x)
-    }
-}
+use std::{borrow::Cow, fmt, mem::take};
 
 #[derive(Clone, Debug)]
 pub struct RawBasicBlock<BbId> {
@@ -105,8 +11,7 @@ pub struct RawBasicBlock<BbId> {
     condjmp: Option<(CondJumpCond, JumpTarget<BbId>)>,
     begin_loc: Option<crate::stmt::Location>,
     endjmp_loc: Option<crate::stmt::Location>,
-    // None -> HLT
-    next: Option<JumpTarget<BbId>>,
+    next: UcJumpTarget<BbId>,
 }
 
 impl<B> Default for RawBasicBlock<B> {
@@ -116,7 +21,7 @@ impl<B> Default for RawBasicBlock<B> {
             condjmp: None,
             begin_loc: None,
             endjmp_loc: None,
-            next: None,
+            next: UcJumpTarget::Halt,
         }
     }
 }
@@ -129,19 +34,8 @@ impl<B> RawBasicBlock<B> {
 
 pub type BasicBlock = RawBasicBlock<usize>;
 
-fn jumptrg_to_bbid<BbId>(jt: Option<JumpTarget<BbId>>) -> Option<BbId> {
-    match jt? {
-        JumpTarget::BasicBlock(bbid) => Some(bbid),
-        JumpTarget::Absolute(_) => None,
-    }
-}
-
 impl BasicBlock {
     fn linked_bb_ids(&self) -> impl Iterator<Item = BbRef<'_>> {
-        fn jumptrg_to_link(jt: Option<JumpTarget<usize>>) -> Option<BbRef<'static>> {
-            jumptrg_to_bbid(jt).map(BbRef::Id)
-        }
-
         self.stmts
             .iter()
             .filter_map(|i| match &i.cmd {
@@ -154,8 +48,99 @@ impl BasicBlock {
                 }
                 _ => None,
             })
-            .chain(jumptrg_to_link(self.condjmp.map(|i| i.1)))
-            .chain(jumptrg_to_link(self.next))
+            .chain(jumptrg_to_bbid(self.condjmp.map(|i| i.1)).map(BbRef::Id))
+            .chain(self.next.try_into_bbid().ok().map(BbRef::Id))
+    }
+
+    fn optimize_once(&mut self) {
+        let mut trm = HashMap::new();
+        let mut it = self.stmts.windows(2).enumerate();
+
+        while let Some((n, [i, j])) = it.next() {
+            use {CmdNoArg as Cna, CmdWithArg as Cwa};
+            if j.do_ignore {
+                it.next();
+            }
+            if i.do_ignore || j.do_ignore {
+                continue;
+            }
+            let (kill_fi, kill_se) = match (&i.cmd, &j.cmd) {
+                (Command::Na(a), Command::Na(b)) => match (a, b) {
+                    (Cna::Add, Cna::Sub) | (Cna::Sub, Cna::Add) | (Cna::Not, Cna::Not) => {
+                        (true, true)
+                    }
+                    (Cna::Mab, Cna::Mab) | (Cna::And, Cna::And) => (true, false),
+                    _ => (false, false),
+                },
+                (Command::Wa(a, aarg), Command::Wa(b, barg)) => match (a, b) {
+                    (Cwa::Lda, Cwa::Lda) | (Cwa::Ldb, Cwa::Ldb) => (true, false),
+                    (Cwa::Rra, Cwa::Rla) | (Cwa::Rla, Cwa::Rra) => {
+                        if aarg == barg {
+                            (true, true)
+                        } else {
+                            (false, false)
+                        }
+                    }
+                    _ => (false, false),
+                },
+                (Command::Na(a), Command::Wa(b, _)) => match (a, b) {
+                    (a, Cwa::Lda) => match a {
+                        Cna::Add | Cna::Sub | Cna::And | Cna::Not => (true, false),
+                        _ => (false, false),
+                    },
+                    (a, Cwa::Ldb) => match a {
+                        Cna::Mab => (true, false),
+                        _ => (false, false),
+                    },
+                    _ => (false, false),
+                },
+                (Command::Wa(a, _), Command::Na(b)) => match (a, b) {
+                    (Cwa::Ldb, Cna::Mab) => (true, false),
+                    _ => (false, false),
+                },
+                _ => (false, false),
+            };
+            if kill_fi {
+                trm.insert(n, None);
+            }
+            if kill_se {
+                trm.insert(n + 1, None);
+                it.next();
+            }
+        }
+
+        self.stmts = take(&mut self.stmts)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(n, i)| trm.remove(&n).unwrap_or(Some(i)))
+            .collect();
+    }
+
+    fn optimize_end(&mut self, labels: &HashMap<String, usize>) {
+        // perform tail-call optimization
+        if self.next != UcJumpTarget::Return {
+            return;
+        }
+        let new_next = if let Some(last) = self.stmts.last() {
+            if last.do_ignore {
+                return;
+            }
+            if let Command::Wa(CmdWithArg::Cal, cal_trg) = &last.cmd {
+                match cal_trg {
+                    Argument::Label(ref l) => labels.get(l).copied().map(UcJumpTarget::BasicBlock),
+                    Argument::Absolute(a) => Some(UcJumpTarget::Absolute(*a)),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(next) = new_next {
+            self.stmts.pop();
+            self.next = next;
+        }
     }
 }
 
@@ -172,12 +157,7 @@ impl<B: fmt::Display> fmt::Display for RawBasicBlock<B> {
         if let Some(x) = self.condjmp.as_ref() {
             writeln!(f, "  condjmp: if {} -> {}", CmdWithArg::from(x.0), x.1)?;
         }
-        write!(f, "  --> ")?;
-        if let Some(x) = self.next.as_ref() {
-            write!(f, "{}", x)
-        } else {
-            write!(f, "<HALT>")
-        }?;
+        write!(f, "  --> {}", self.next)?;
         if let Some(l) = self.endjmp_loc.as_ref() {
             write!(f, " /* {} */", l)?;
         }
@@ -209,11 +189,11 @@ impl Module {
         macro_rules! pushbb {
             () => {
                 if !last_bb.is_empty() {
-                    if last_bb.next.is_none() {
+                    if last_bb.next == UcJumpTarget::Halt {
                         last_bb.next =
-                            Some(wraptrg(JumpTarget::<usize>::BasicBlock(bbs.len() + 1)));
+                            wraptrg(JumpTarget::<usize>::BasicBlock(bbs.len() + 1)).into();
                     }
-                    bbs.push(std::mem::take(&mut last_bb));
+                    bbs.push(take(&mut last_bb));
                 }
             };
         }
@@ -232,15 +212,20 @@ impl Module {
                     }
                     labels.insert(l, bbs.len());
                 }
-                Command::Na(CmdNoArg::Hlt) => {
-                    last_bb.next = None;
+                Command::Na(CmdNoArg::Ret) => {
+                    last_bb.next = UcJumpTarget::Return;
                     last_bb.endjmp_loc = Some(loc);
-                    bbs.push(std::mem::take(&mut last_bb));
+                    bbs.push(take(&mut last_bb));
+                }
+                Command::Na(CmdNoArg::Hlt) => {
+                    last_bb.next = UcJumpTarget::Halt;
+                    last_bb.endjmp_loc = Some(loc);
+                    bbs.push(take(&mut last_bb));
                 }
                 Command::Wa(CmdWithArg::Jmp, arg) => {
-                    last_bb.next = Some(wraptrg(JumpTarget::new(arg).map_err(ModuleParseError)?));
+                    last_bb.next = wraptrg(JumpTarget::new(arg).map_err(ModuleParseError)?).into();
                     last_bb.endjmp_loc = Some(loc);
-                    bbs.push(std::mem::take(&mut last_bb));
+                    bbs.push(take(&mut last_bb));
                 }
                 Command::Wa(CmdWithArg::Jps, arg) => {
                     last_bb.condjmp = Some((
@@ -276,18 +261,25 @@ impl Module {
         {
             let bbs_len = bbs.len();
             if let Some(x) = bbs.last_mut() {
-                if let Some(JumpTarget::BasicBlock(BbRef::Id(y))) = x.next {
+                if let UcJumpTarget::BasicBlock(BbRef::Id(y)) = x.next {
                     if y >= bbs_len {
-                        x.next = None;
+                        x.next = UcJumpTarget::Halt;
                     }
                 }
             }
         }
 
-        let bbs = bbs.into_iter().map(|i| {
-            let RawBasicBlock { stmts, condjmp, begin_loc, endjmp_loc, next } = i;
-            let mangle_jmptrg = |jmptrg: JumpTarget<BbRef<'static>>| -> Result<JumpTarget<usize>, ModuleParseError> {
-                jmptrg.try_map(|jt2| {
+        let bbs = bbs
+            .into_iter()
+            .map(|i| {
+                let RawBasicBlock {
+                    stmts,
+                    condjmp,
+                    begin_loc,
+                    endjmp_loc,
+                    next,
+                } = i;
+                let mangle_jtbb = |jt2: BbRef<'static>| -> Result<usize, ModuleParseError> {
                     match jt2 {
                         BbRef::Label(label) => {
                             if let Some(real_jmptrg) = labels.get(label.as_ref()) {
@@ -295,23 +287,25 @@ impl Module {
                             } else {
                                 Err(ModuleParseError(Argument::Label(label.into_owned())))
                             }
-                        },
+                        }
                         BbRef::Id(id) => Ok(id),
                     }
+                };
+                let condjmp = if let Some((cond, jmptrg)) = condjmp {
+                    Some((cond, jmptrg.try_map(mangle_jtbb)?))
+                } else {
+                    None
+                };
+                let next = next.try_map(mangle_jtbb)?;
+                Ok(BasicBlock {
+                    stmts,
+                    condjmp,
+                    begin_loc,
+                    endjmp_loc,
+                    next,
                 })
-            };
-            let condjmp = if let Some((cond, jmptrg)) = condjmp {
-                Some((cond, mangle_jmptrg(jmptrg)?))
-            } else {
-                None
-            };
-            let next = if let Some(jmptrg) = next {
-                Some(mangle_jmptrg(jmptrg)?)
-            } else {
-                None
-            };
-            Ok(BasicBlock { stmts, condjmp, begin_loc, endjmp_loc, next })
-        }).collect::<Result<Vec<_>, _>>()?;
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Module { bbs, labels })
     }
 
@@ -352,24 +346,21 @@ impl Module {
             };
             *id = curid - rem_bbids.iter().take_while(|twi| **twi < curid).count();
         };
-        let trt_bbid = |jty: Option<&mut JumpTarget<usize>>| {
-            if let Some(JumpTarget::BasicBlock(ref mut bbid)) = jty {
-                mangle_bbid(bbid);
-            }
-        };
         let new_bbs: Vec<BasicBlock> = self
             .bbs
             .clone()
             .into_iter()
             .enumerate()
-            .filter_map(|(n, mut i)| {
-                if rem_bbids.contains(&n) {
-                    None
-                } else {
-                    trt_bbid(i.condjmp.as_mut().map(|i| &mut i.1));
-                    trt_bbid(i.next.as_mut());
-                    Some(i)
+            .filter(|&(n, _)| !rem_bbids.contains(&n))
+            .map(|(_, i)| i)
+            .map(|mut i| {
+                if let Some((_, JumpTarget::BasicBlock(ref mut bbid))) = i.condjmp.as_mut() {
+                    mangle_bbid(bbid);
                 }
+                if let UcJumpTarget::BasicBlock(ref mut bbid) = i.next {
+                    mangle_bbid(bbid);
+                }
+                i
             })
             .collect();
         let liu: BTreeSet<Cow<str>> = Self::labels_in_use(&new_bbs).collect();
@@ -388,11 +379,12 @@ impl Module {
             return BTreeSet::new();
         }
         let mut used: BTreeSet<usize> = [0].iter().copied().collect();
-        let mut old_cnt = used.len();
+        let mut old_cnt = None;
         let labels = &self.labels;
         let bbs = &self.bbs;
-        loop {
-            used = std::mem::take(&mut used)
+        while old_cnt != Some(used.len()) {
+            old_cnt = Some(used.len());
+            used = take(&mut used)
                 .into_iter()
                 .flat_map(|i| bbs.get(i).map(|bb| (i, bb)))
                 .flat_map(|(i, bb)| {
@@ -406,17 +398,17 @@ impl Module {
                         .chain(std::iter::once(i))
                 })
                 .collect();
-
-            if used.len() == old_cnt {
-                break;
-            }
-            old_cnt = used.len();
         }
         let allbbs: BTreeSet<usize> = (0..self.bbs.len()).collect();
         allbbs.difference(&used).copied().collect()
     }
 
     pub fn optimize_once(&mut self) {
+        for i in self.bbs.iter_mut() {
+            i.optimize_once();
+            i.optimize_end(&self.labels);
+        }
+
         let trm = self
             .bbs
             .iter()
@@ -426,10 +418,10 @@ impl Module {
                 if i.is_empty() {
                     Some((
                         n,
-                        match i.next.as_ref() {
-                            None => None,
-                            Some(JumpTarget::BasicBlock(b)) => Some(*b),
-                            Some(_) => return None,
+                        match &i.next {
+                            UcJumpTarget::Halt => None,
+                            UcJumpTarget::BasicBlock(ref b) => Some(*b),
+                            _ => return None,
                         },
                     ))
                 } else {
@@ -441,5 +433,13 @@ impl Module {
             .collect();
 
         self.mangle_bbs(trm);
+    }
+
+    pub fn optimize(&mut self) {
+        let mut old_cnt = None;
+        while old_cnt != Some(self.bbs.len()) {
+            old_cnt = Some(self.bbs.len());
+            self.optimize_once();
+        }
     }
 }

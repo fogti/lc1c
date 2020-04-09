@@ -23,7 +23,7 @@ fn read_asm_from_file(fname: String) -> Result<Vec<stmt::Statement>, (Arc<str>, 
     Ok(stmts)
 }
 
-fn print_module(module: &block::Module) {
+fn print_module(module: &bb::Module) {
     println!("module ::");
     for (n, i) in module.bbs().iter().enumerate() {
         print!("BB({}): ", n);
@@ -38,8 +38,7 @@ fn print_module(module: &block::Module) {
         }
         println!("{}", i);
     }
-    println!("\tlabels: {:?}", module.labels());
-    println!("unused BBs: {:?}", module.unused_bbs());
+    println!("labels: {:?}", module.labels());
 }
 
 fn main() {
@@ -56,13 +55,13 @@ fn main() {
 
         println!("stmts: {:?}\n... convert into basic blocks ...", stmts);
 
-        let mut module = block::Module::new(stmts).expect("module parsing failed");
+        let mut module = bb::Module::new(stmts).expect("module parsing failed");
 
         print_module(&module);
 
-        println!("\n... run one optimization ...");
+        println!("\n... run optimization ...");
 
-        module.optimize_once();
+        module.optimize();
 
         print_module(&module);
     }
